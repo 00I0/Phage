@@ -4,6 +4,24 @@ This project provides a Python workflow for country and global serotype
 composition plots, Morisita-Horn lag decay, Bayesian exponential fits,
 coverage sensitivity analysis, and fitted-curve figures.
 
+## Project structure
+
+- `src/band_decay/` contains the analysis package.
+- `data/` contains the input data and fitted curve data. The examples expect
+  `serotype_counts_country_ds_geodate2-2.tsv`, a tab-separated file with
+  `country`, `collection_year`, `serotype`, and `count` columns. Generated plots
+  are written to `plots/` and the exported R curve data stays in `data/`.
+- `scripts/` contains the standalone Python and R workflows.
+- `notebooks/` contains an interactive version of the analysis.
+- `plots/` stores generated figures, while `tests/` contains automated tests.
+
+## Scripts
+
+- `plot_band_decay.py` runs the exponential curve fitting and creates the stack plots.
+- `plot_fitted_country_curves.py` fits and plots one decay curve per country on the same plot.
+- `update_fitted_country_curves_data.py` updates the R curve data file.
+- `plot_fitted_country_curves.R` reads that file and creates the R curve plot.
+
 ## Installation
 
 From the project directory, install all runtime, fitting, and notebook
@@ -37,8 +55,7 @@ print(result.prepared.entity_order)
 
 Use `PyMCDecayFitter` explicitly when a Bayesian fit is wanted. The notebook
 `notebooks/band_decay.ipynb` provides an interactive configuration surface
-over the same API; its widget implementation lives in a hidden notebook cell
-instead of the analysis package.
+over the same API; its widget implementation lives in a hidden notebook cell.
 
 ## Sensitivity and curves
 
@@ -52,10 +69,15 @@ sensitivity = SensitivityRunner(
 print(sensitivity.stability_summary)
 ```
 
-Fitted curve plotting consumes posterior results produced by the analysis:
+Fitted curve plotting consumes posterior results produced by the analysis. The
+`config` below is the one created in the basic usage example:
 
 ```python
-from band_decay import CurvePlotConfig, PosteriorMedian, render_fitted_curves
+from band_decay import CurvePlotConfig, DecayAnalysis, PosteriorMedian, render_fitted_curves
+
+analysis = DecayAnalysis(config)
+prepared = analysis.prepare()
+decay_data = analysis.fit(prepared)
 
 render_fitted_curves(
     decay_data,
@@ -73,30 +95,30 @@ settings.
 
 ## Scripts and notebook
 
-Run the coverage sensitivity workflow from the project directory with:
+Run the scripts from the project directory with:
 
 ```bash
 PYTHONPATH=src python scripts/plot_band_decay.py
 ```
 
-Run the country-only posterior curve plot with:
+Or with:
 
 ```bash
 PYTHONPATH=src python scripts/plot_fitted_country_curves.py
 ```
 
-Choose the curve scale by changing the `display` policy in `main()` in
-`scripts/plot_fitted_country_curves.py` to either `NormalizedDecay()` or
-`OriginalDecay()`.
+Update the data used by the R plot and then render it with:
 
-Choose the curve summary by changing `fit_summary` in the same call between
-`PosteriorMean()` and `PosteriorMedian()`.
+```bash
+PYTHONPATH=src python scripts/update_fitted_country_curves_data.py
+Rscript scripts/plot_fitted_country_curves.R
+```
 
-The same `main()` configuration can opt into `CentralConfidenceInterval()`
-and `DashedExtrapolation()` in place of `NoConfidenceInterval()` and
-`NoExtrapolation()`.
+The R script requires R and the `ggplot2` package. 
 
-Open `notebooks/band_decay.ipynb` in Jupyter after installing the dependencies.
-The notebook uses `data/serotype_counts_country_ds_geodate2-2.tsv` by default.
-Edit the configuration values in the notebook or in `main()` in the script
-before running an analysis.
+Start the notebook from the
+project directory so its relative data path and `src` package path resolve:
+
+```bash
+PYTHONPATH="$PWD/src" jupyter notebook notebooks/band_decay.ipynb
+```
