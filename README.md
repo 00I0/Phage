@@ -37,7 +37,8 @@ print(result.prepared.entity_order)
 
 Use `PyMCDecayFitter` explicitly when a Bayesian fit is wanted. The notebook
 `notebooks/band_decay.ipynb` provides an interactive configuration surface
-over the same API.
+over the same API; its widget implementation lives in a hidden notebook cell
+instead of the analysis package.
 
 ## Sensitivity and curves
 
@@ -51,17 +52,24 @@ sensitivity = SensitivityRunner(
 print(sensitivity.stability_summary)
 ```
 
-Standalone fitted curves accept either `CurveParameters` objects or
-`(y0, b, c)` tuples:
+Fitted curve plotting consumes posterior results produced by the analysis:
 
 ```python
-from band_decay import CurvePlotConfig, render_fitted_curves
+from band_decay import CurvePlotConfig, PosteriorMedian, render_fitted_curves
 
 render_fitted_curves(
-    {"GLOBAL": (0.9, 0.1, 0.12), "Greece": (0.94, 0.08, 0.22)},
-    CurvePlotConfig(output_path="plots/fitted-curves.png"),
+    decay_data,
+    CurvePlotConfig(
+        output_path="plots/fitted-curves.png",
+        fit_summary=PosteriorMedian(),
+    ),
 )
 ```
+
+`PosteriorMean()` and `PosteriorMedian()` can be selected independently on
+`CurvePlotConfig.fit_summary`, `PlotConfig.fit_summary`, and the
+`SensitivityConfig.fit_summary` / `SensitivityConfig.stability_summary`
+settings.
 
 ## Scripts and notebook
 
@@ -70,6 +78,23 @@ Run the coverage sensitivity workflow from the project directory with:
 ```bash
 PYTHONPATH=src python scripts/plot_band_decay.py
 ```
+
+Run the country-only posterior curve plot with:
+
+```bash
+PYTHONPATH=src python scripts/plot_fitted_country_curves.py
+```
+
+Choose the curve scale by changing the `display` policy in `main()` in
+`scripts/plot_fitted_country_curves.py` to either `NormalizedDecay()` or
+`OriginalDecay()`.
+
+Choose the curve summary by changing `fit_summary` in the same call between
+`PosteriorMean()` and `PosteriorMedian()`.
+
+The same `main()` configuration can opt into `CentralConfidenceInterval()`
+and `DashedExtrapolation()` in place of `NoConfidenceInterval()` and
+`NoExtrapolation()`.
 
 Open `notebooks/band_decay.ipynb` in Jupyter after installing the dependencies.
 The notebook uses `data/serotype_counts_country_ds_geodate2-2.tsv` by default.

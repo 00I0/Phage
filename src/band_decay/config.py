@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import string
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Mapping
 
@@ -12,6 +12,7 @@ from .policies import (
     DecayDisplayPolicy,
     DisplayAxisPolicy,
     EntityAvailableYears,
+    ExtrapolationPolicy,
     GlobalTopN,
     GlobalTransientTaxa,
     LargestContiguousBlock,
@@ -23,7 +24,15 @@ from .policies import (
     UnionAvailableYears,
     YearSelectionPolicy,
 )
-from .policies import OriginalDecay
+from .policies import (
+    ConfidenceIntervalPolicy,
+    NoConfidenceInterval,
+    NoExtrapolation,
+    OriginalDecay,
+    PosteriorMean,
+    PosteriorMedian,
+    PosteriorSummaryPolicy,
+)
 from .priors import DecayPriorConfig
 
 
@@ -126,6 +135,10 @@ class TopNConfig:
         """Return the minimum percentage configured for one country."""
         return float(self.per_country_min_year_percent.get(country, self.min_year_percent))
 
+    def with_updates(self, **changes: object) -> "TopNConfig":
+        """Return a new Top-N configuration with selected fields changed."""
+        return replace(self, **changes)
+
 
 @dataclass(frozen=True)
 class MorisitaHornConfig:
@@ -177,12 +190,17 @@ class PlotConfig:
     excluded_year_alpha: float = 0.28
     excluded_year_hatch: str = "////"
     decay_display: DecayDisplayPolicy = field(default_factory=OriginalDecay)
+    fit_summary: PosteriorSummaryPolicy = field(default_factory=PosteriorMedian)
 
     def __post_init__(self) -> None:
         if int(self.dpi) < 1 or int(self.max_legend_labels) < 0 or int(self.count_label_max_years) < 0:
             raise ValueError("plot dpi, legend limit, and label years must be nonnegative; dpi must be positive.")
         if float(self.count_label_max_y_fraction) < 0 or not 0 <= float(self.excluded_year_alpha) <= 1:
             raise ValueError("plot label fraction must be nonnegative and mask alpha must be in [0, 1].")
+
+    def with_updates(self, **changes: object) -> "PlotConfig":
+        """Return a new plot configuration with selected fields changed."""
+        return replace(self, **changes)
 
 
 @dataclass(frozen=True)
@@ -212,6 +230,18 @@ class AnalysisConfig:
     plot: PlotConfig = field(default_factory=PlotConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
 
+    def with_top_n(self, **changes: object) -> "AnalysisConfig":
+        """Return a new analysis configuration with selected Top-N fields changed."""
+        return replace(self, top_n=self.top_n.with_updates(**changes))
+
+    def with_plot(self, **changes: object) -> "AnalysisConfig":
+        """Return a new analysis configuration with selected plot fields changed."""
+        return replace(self, plot=self.plot.with_updates(**changes))
+
+    def with_sampling(self, sampling: SamplingConfig) -> "AnalysisConfig":
+        """Return a new analysis configuration with a replacement sampling config."""
+        return replace(self, sampling=sampling)
+
 
 @dataclass(frozen=True)
 class SensitivityConfig:
@@ -223,6 +253,8 @@ class SensitivityConfig:
     stability_horizon_years: float = 20.0
     stability_targets: tuple[float, ...] = (0.3, 0.5, 0.7, 0.8, 0.9, 0.95)
     minimum_pairs_for_supported_lag: int = 4
+    fit_summary: PosteriorSummaryPolicy = field(default_factory=PosteriorMedian)
+    stability_summary: PosteriorSummaryPolicy = field(default_factory=PosteriorMedian)
 
     def __post_init__(self) -> None:
         coverage = tuple(float(value) for value in self.coverage_percentages)
@@ -248,6 +280,9 @@ class CurvePlotConfig:
     dpi: int = 300
     show: bool = False
     display: DecayDisplayPolicy = field(default_factory=lambda: OriginalDecay())
+    fit_summary: PosteriorSummaryPolicy = field(default_factory=PosteriorMean)
+    confidence_interval: ConfidenceIntervalPolicy = field(default_factory=NoConfidenceInterval)
+    extrapolation: ExtrapolationPolicy = field(default_factory=NoExtrapolation)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "output_path", Path(self.output_path))

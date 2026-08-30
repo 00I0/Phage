@@ -13,7 +13,7 @@ import pandas as pd
 from .constants import GLOBAL_ENTITY, OTHER_TAXON, TRANSIENT_TAXON
 
 if TYPE_CHECKING:
-    from .domain import CurveParameters, DecayFit, EntityYearSelection
+    from .domain import DecayFit, EntityDecayData, EntityYearSelection
 
 
 class YearSelectionPolicy(ABC):
@@ -333,6 +333,10 @@ class DecayDisplayPolicy(ABC):
         """Return the pointwise median curve."""
 
     @abstractmethod
+    def mean_curve(self, fit: DecayFit, x_values: np.ndarray) -> np.ndarray:
+        """Return the pointwise mean curve."""
+
+    @abstractmethod
     def interval(self, fit: DecayFit, x_values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return the central posterior band."""
 
@@ -356,9 +360,125 @@ class DecayDisplayPolicy(ABC):
     def posterior_parameters(self, fit: DecayFit) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return posterior parameters on the displayed scale."""
 
+
+class PosteriorSummaryPolicy(ABC):
+    """Choose how posterior draws are summarized for a pipeline stage."""
+
+    def option_name(self) -> str:
+        """Return the concise name used by configuration controls."""
+        return self.__class__.__name__
+
+    def label(self) -> str:
+        """Return a short human-readable summary label."""
+        return self.__class__.__name__.removeprefix("Posterior").lower()
+
     @abstractmethod
-    def parameter_curve(self, parameters: CurveParameters, x_values: np.ndarray) -> np.ndarray:
-        """Evaluate standalone curve parameters on the displayed scale."""
+    def summarize(self, draws: np.ndarray, *, axis: int | None = None) -> np.ndarray:
+        """Summarize posterior draws along the requested axis."""
+
+    def curve(self, display: DecayDisplayPolicy, fit: DecayFit, x_values: np.ndarray) -> np.ndarray:
+        """Summarize displayed posterior curve draws pointwise."""
+        return self.summarize(display.curve_draws(fit, x_values), axis=0)
+
+    def scalar(self, draws: np.ndarray) -> float:
+        """Summarize posterior draws as one scalar."""
+        return float(self.summarize(np.asarray(draws, dtype=float)))
+
+
+class PosteriorMean(PosteriorSummaryPolicy):
+    """Use the posterior mean as the stage summary."""
+
+    def summarize(self, draws: np.ndarray, *, axis: int | None = None) -> np.ndarray:
+        """Return the NaN-aware posterior mean."""
+        return np.nanmean(np.asarray(draws, dtype=float), axis=axis)
+
+
+class PosteriorMedian(PosteriorSummaryPolicy):
+    """Use the posterior median as the stage summary."""
+
+    def summarize(self, draws: np.ndarray, *, axis: int | None = None) -> np.ndarray:
+        """Return the NaN-aware posterior median."""
+        return np.nanmedian(np.asarray(draws, dtype=float), axis=axis)
+
+
+class ConfidenceIntervalPolicy(ABC):
+    """Choose whether and how posterior uncertainty is displayed."""
+
+    @abstractmethod
+    def bounds(self, display: DecayDisplayPolicy, fit: DecayFit, x_values: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return displayed-scale interval bounds, or no band."""
+
+    def fill_alpha(self) -> float:
+        """Return the interval fill opacity."""
+        return 0.12
+
+
+class NoConfidenceInterval(ConfidenceIntervalPolicy):
+    """Do not render posterior uncertainty bands."""
+
+    def bounds(self, display, fit, x_values):
+        """Return no interval bounds."""
+        return None
+
+
+@dataclass(frozen=True)
+class CentralConfidenceInterval(ConfidenceIntervalPolicy):
+    """Render a central posterior interval with restrained opacity."""
+
+    level: float = 0.95
+    alpha: float = 0.12
+
+    def __post_init__(self) -> None:
+        if not 0 < float(self.level) <= 1:
+            raise ValueError("confidence interval level must be in (0, 1].")
+        if not 0 < float(self.alpha) <= 1:
+            raise ValueError("confidence interval alpha must be in (0, 1].")
+
+    def bounds(self, display, fit, x_values):
+        """Return central displayed-scale posterior bounds."""
+        draws = display.curve_draws(fit, x_values)
+        tail = 0.5 * (1.0 - float(self.level))
+        return np.nanquantile(draws, tail, axis=0), np.nanquantile(draws, 1.0 - tail, axis=0)
+
+    def fill_alpha(self) -> float:
+        """Return the configured interval fill opacity."""
+        return float(self.alpha)
+
+
+class ExtrapolationPolicy(ABC):
+    """Choose how lags outside the fitted range are rendered."""
+
+    @abstractmethod
+    def split(self, decay: EntityDecayData, x_values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Split display lags into fitted and extrapolated sections."""
+
+
+class NoExtrapolation(ExtrapolationPolicy):
+    """Render the complete curve with one continuous style."""
+
+    def split(self, decay, x_values):
+        """Keep all lags in the fitted-style section."""
+        values = np.asarray(x_values, dtype=float).reshape(-1)
+        return values, np.array([], dtype=float)
+
+
+class DashedExtrapolation(ExtrapolationPolicy):
+    """Render lags beyond the largest fitted lag with a dashed line."""
+
+    def split(self, decay, x_values):
+        """Split at the largest finite lag used by the fit."""
+        values = np.asarray(x_values, dtype=float).reshape(-1)
+        fitted_lags = np.asarray(decay.x, dtype=float).reshape(-1)
+        fitted_lags = fitted_lags[np.isfinite(fitted_lags)]
+        if not len(fitted_lags):
+            return values, np.array([], dtype=float)
+        fit_end = float(np.max(fitted_lags))
+        fitted = values[values <= fit_end]
+        extrapolated = values[values > fit_end]
+        if len(fitted) and len(extrapolated) and fitted[-1] < fit_end:
+            fitted = np.append(fitted, fit_end)
+            extrapolated = np.insert(extrapolated, 0, fit_end)
+        return fitted, extrapolated
 
 
 def _finite_posterior_parameters(fit: DecayFit) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -384,6 +504,10 @@ class OriginalDecay(DecayDisplayPolicy):
         """Return the original-scale posterior median curve."""
         return fit.median_curve(x_values)
 
+    def mean_curve(self, fit, x_values):
+        """Return the original-scale posterior mean curve."""
+        return fit.mean_curve(x_values)
+
     def interval(self, fit, x_values):
         """Return the original-scale posterior interval."""
         return fit.interval(x_values)
@@ -408,11 +532,6 @@ class OriginalDecay(DecayDisplayPolicy):
         """Return finite posterior parameters unchanged."""
         return _finite_posterior_parameters(fit)
 
-    def parameter_curve(self, parameters, x_values):
-        """Evaluate standalone parameters on the original scale."""
-        return parameters.evaluate(x_values)
-
-
 class NormalizedDecay(DecayDisplayPolicy):
     """Display fitted curves normalized by each draw’s ``y0``."""
 
@@ -423,6 +542,10 @@ class NormalizedDecay(DecayDisplayPolicy):
     def median_curve(self, fit, x_values):
         """Return the normalized posterior median curve."""
         return fit.normalized_median_curve(x_values)
+
+    def mean_curve(self, fit, x_values):
+        """Return the normalized posterior mean curve."""
+        return fit.normalized_mean_curve(x_values)
 
     def interval(self, fit, x_values):
         """Return the normalized posterior interval."""
@@ -451,9 +574,3 @@ class NormalizedDecay(DecayDisplayPolicy):
         if not np.any(valid):
             raise ValueError("DecayFit has no nonzero y0 posterior draws.")
         return np.ones(int(valid.sum())), b[valid], c[valid] / y0[valid]
-
-    def parameter_curve(self, parameters, x_values):
-        """Evaluate standalone parameters on the normalized scale."""
-        if parameters.y0 == 0:
-            raise ValueError("Cannot normalize a curve with y0=0.")
-        return parameters.evaluate(x_values) / parameters.y0

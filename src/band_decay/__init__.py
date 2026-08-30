@@ -13,8 +13,7 @@ from .config import (
     YearSelectionConfig,
 )
 from .constants import GLOBAL_ENTITY, OTHER_TAXON, TRANSIENT_TAXON
-from .curves import DEFAULT_MEAN_CURVES, CurveSet, FittedCurvesRenderer, render_fitted_curves
-from .configurator import WidgetConfigurator, create_configurator
+from .curves import FittedCurvesRenderer, render_fitted_curves
 from .data import (
     build_global_analysis_frame,
     build_raw_entity_count_matrices,
@@ -23,10 +22,8 @@ from .data import (
     resolve_configured_countries,
     validate_counts_frame,
 )
-from .defaults import default_config
 from .domain import (
     CoveragePlan,
-    CurveParameters,
     DecayFit,
     EntityDecayData,
     EntityGrouping,
@@ -42,19 +39,28 @@ from .pipeline import DecayAnalysis, prepare_data, run_top_n_sweep
 from .policies import (
     AllAvailableYears,
     AvailableYearRanking,
+    CentralConfidenceInterval,
     CollapseTaxa,
+    ConfidenceIntervalPolicy,
     DecayDisplayPolicy,
     DisplayAxisPolicy,
     EntityAvailableYears,
+    ExtrapolationPolicy,
     GlobalTopN,
     GlobalTransientTaxa,
     KeepTaxa,
     LargestContiguousBlock,
+    DashedExtrapolation,
+    NoConfidenceInterval,
+    NoExtrapolation,
     NoTransientTaxa,
     NormalizedDecay,
     OriginalDecay,
     PerEntityTopN,
     PerEntityTransientTaxa,
+    PosteriorMean,
+    PosteriorMedian,
+    PosteriorSummaryPolicy,
     QualifyingYears,
     SelectedYearRanking,
     SkipTaxa,
@@ -111,24 +117,24 @@ from .sensitivity import (
 
 __all__ = [
     "AllAvailableYears", "AnalysisConfig", "AnalysisFigureRenderer", "AsymptotePrior", "AvailableYearRanking",
-    "BetaPrior", "BuiltNoise", "CollapseTaxa", "CoveragePlan", "CurveParameters", "CurvePlotConfig", "CurveSet",
+    "BetaPrior", "BuiltNoise", "CentralConfidenceInterval", "CollapseTaxa", "ConfidenceIntervalPolicy", "CoveragePlan", "CurvePlotConfig",
     "DataPreparer", "DecayAnalysis", "DecayDisplayPolicy", "DecayFitter", "DecayFit", "DecayPriorConfig",
-    "DirectAsymptote", "DisplayAxisPolicy", "EntityAvailableYears", "EntityDecayData", "EntityGrouping",
+    "DashedExtrapolation", "DirectAsymptote", "DisplayAxisPolicy", "EntityAvailableYears", "EntityDecayData", "EntityGrouping", "ExtrapolationPolicy",
     "EntityYearSelection", "FittedCurvesRenderer", "FixedNoiseVariable", "FixedObservationNoise", "FixedValuePrior",
     "GLOBAL_ENTITY", "GlobalTopN", "GlobalTransientTaxa", "HalfNormalPrior", "InputConfig", "KeepTaxa",
-    "LargestContiguousBlock", "MorisitaHornConfig", "NoOpFitter", "NoTransientTaxa", "NormalizedDecay", "NoisePrior",
+    "LargestContiguousBlock", "MorisitaHornConfig", "NoConfidenceInterval", "NoExtrapolation", "NoOpFitter", "NoTransientTaxa", "NormalizedDecay", "NoisePrior",
     "OriginalDecay", "OTHER_NAME", "OTHER_TAXON", "OutputConfig", "PaletteBuilder", "PaletteSettings", "ParameterPrior",
     "PerEntityTopN", "PerEntityTransientTaxa", "PlotConfig", "PreparedData", "PreparedEntityData", "PyMCDecayFitter",
-    "QualifyingYears", "RelativeAsymptote", "RunResult", "SampledNoiseVariable", "SampledObservationNoise",
+    "PosteriorMean", "PosteriorMedian", "PosteriorSummaryPolicy", "QualifyingYears", "RelativeAsymptote", "RunResult", "SampledNoiseVariable", "SampledObservationNoise",
     "SamplingConfig", "SelectedYearRanking", "SensitivityConfig", "SensitivityResult", "SensitivityRunner", "SkipTaxa",
     "TaxonGroupingPolicy", "TaxonRanker", "TaxonRankingPolicy", "TopNConfig", "TopNSelectionPolicy", "TRANSIENT_NAME",
-    "TRANSIENT_TAXON", "TransientPolicy", "UnionAvailableYears", "WidgetConfigurator", "YearSelectionConfig",
+    "TRANSIENT_TAXON", "TransientPolicy", "UnionAvailableYears", "YearSelectionConfig",
     "YearSelectionPolicy", "build_coverage_plan", "build_display_and_analysis_matrices", "build_global_analysis_frame",
     "build_master_display_columns", "build_mh_counts", "build_raw_entity_count_matrices", "build_stability_table",
-    "build_taxon_palette", "counts_to_props", "create_configurator", "default_config", "determine_transient_serotypes",
+    "build_taxon_palette", "counts_to_props", "determine_transient_serotypes",
     "eligible_serotypes_for_top_n", "fit_entities", "group_display_counts", "largest_contiguous_block", "largest_supported_lag",
     "load_counts", "masked_display_years", "output_path_for_config", "palette_diagnostics", "prepare_data", "rank_serotypes",
     "raw_entity_counts", "render_figure", "render_fitted_curves", "resolve_configured_countries", "run_sensitivity",
     "run_top_n_sweep", "select_years_for_entity", "stability_metrics", "top_n_for_coverage", "validate_counts_frame",
-    "DEFAULT_MEAN_CURVES", "DEFAULT_PALETTE_SETTINGS",
+    "DEFAULT_PALETTE_SETTINGS",
 ]

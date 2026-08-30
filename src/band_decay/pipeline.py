@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -71,14 +70,22 @@ class DecayAnalysis:
             Complete run result including prepared data and decay data.
         """
         prepared = self.prepare(raw_counts, palette_master_labels=palette_master_labels)
+        decay_data = self.fit(prepared, fit=fit, fitter=fitter)
+        resolved_path = Path(output_path) if output_path is not None else output_path_for_config(self.config) if save else None
+        rendered_path = self.render(prepared, decay_data, resolved_path)
+        return RunResult(config=self.config, prepared=prepared, decay_data=decay_data, output_path=rendered_path)
+
+    def fit(self, prepared: PreparedData, *, fit: bool = True, fitter: DecayFitter | None = None) -> dict:
+        """Fit prepared data as an independently composable pipeline stage."""
         selected_fitter = fitter if fitter is not None else self.fitter
         if fit and selected_fitter is None:
             selected_fitter = PyMCDecayFitter()
-        # Keep fitting optional so preparation and preview runs stay lightweight.
-        decay_data = fit_entities(prepared, self.config, selected_fitter if fit else NoOpFitter())
-        resolved_path = Path(output_path) if output_path is not None else output_path_for_config(self.config) if save else None
-        rendered_path = self.renderer.render(prepared, decay_data, self.config, resolved_path)
-        return RunResult(config=self.config, prepared=prepared, decay_data=decay_data, output_path=rendered_path)
+        return fit_entities(prepared, self.config, selected_fitter if fit else NoOpFitter())
+
+    def render(self, prepared: PreparedData, decay_data: dict, output_path: Path | str | None = None) -> Path | None:
+        """Render prepared data as an independently composable pipeline stage."""
+        resolved_path = Path(output_path) if output_path is not None else None
+        return self.renderer.render(prepared, decay_data, self.config, resolved_path)
 
 
 def prepare_data(config: AnalysisConfig, raw_counts: pd.DataFrame | None = None, *, palette_master_labels=None, palette_builder=None) -> PreparedData:
@@ -118,6 +125,6 @@ def run_top_n_sweep(
     """
     results = []
     for value in top_n_values:
-        config = replace(base_config, top_n=replace(base_config.top_n, n=int(value)))
+        config = base_config.with_top_n(n=int(value))
         results.append(DecayAnalysis(config, fitter=fitter).run(raw_counts, fit=fit))
     return results

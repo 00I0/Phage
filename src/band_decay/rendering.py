@@ -14,7 +14,7 @@ from matplotlib.ticker import FuncFormatter
 from .config import AnalysisConfig
 from .constants import GLOBAL_ENTITY
 from .domain import EntityDecayData, EntityYearSelection, PreparedData
-from .policies import DecayDisplayPolicy
+from .policies import DecayDisplayPolicy, PosteriorSummaryPolicy
 from .preparation import counts_to_props
 
 
@@ -149,7 +149,17 @@ def _add_row_label(axis, row_label: str) -> None:
     axis.text(-0.16, 0.5, row_label, transform=axis.transAxes, ha="right", va="center", rotation=90, fontsize=9, color="#333333")
 
 
-def _plot_decay(axis, decay: EntityDecayData, *, title: str, show_title: bool, show_y_label: bool, show_x_label: bool, display_policy: DecayDisplayPolicy) -> None:
+def _plot_decay(
+    axis,
+    decay: EntityDecayData,
+    *,
+    title: str,
+    show_title: bool,
+    show_y_label: bool,
+    show_x_label: bool,
+    display_policy: DecayDisplayPolicy,
+    summary_policy: PosteriorSummaryPolicy,
+) -> None:
     fit = decay.fit
     axis.scatter(decay.x, decay.y, s=18, alpha=0.65, color="#222222", linewidths=0.0, label="Lag-pair MH similarity")
     xmax = max(1.0, float(np.max(decay.x))) if len(decay.x) else 1.0
@@ -164,19 +174,20 @@ def _plot_decay(axis, decay: EntityDecayData, *, title: str, show_title: bool, s
         axis.text(0.5, 0.5, "Not fit\n< 3 lag pairs", transform=axis.transAxes, ha="center", va="center", fontsize=9, color="#555555")
         return
     query = np.linspace(0.0, xmax, 200)
-    median = display_policy.median_curve(fit, query)
+    summary_curve = summary_policy.curve(display_policy, fit, query)
     lower, upper = display_policy.interval(fit, query)
     observed_max = float(np.max(decay.y)) if len(decay.y) else 1.0
     observed_min = float(np.min(decay.y)) if len(decay.y) else 0.0
     upper_limit = max(1.02, observed_max, float(np.nanmax(upper)))
     lower_limit = min(0.0, observed_min, float(np.nanmin(lower)))
     axis.set_ylim(lower_limit, upper_limit * 1.05 if upper_limit > 0 else 1.0)
-    asymptote = display_policy.asymptote(fit)
+    y0, b, asymptote_draws = display_policy.posterior_parameters(fit)
+    asymptote = summary_policy.scalar(asymptote_draws)
     axis.fill_between(query, lower, upper, color="#4c78a8", alpha=0.22, linewidth=0.0, label="95% posterior band")
-    axis.plot(query, median, color="#1f4e79", linewidth=1.8, label="Median fit")
-    text = f"y0={float(np.median(fit.y0_samples)):.2f}, b={float(np.median(fit.b_samples)):.2f}, {display_policy.parameter_label()}={asymptote:.2f}"
+    axis.plot(query, summary_curve, color="#1f4e79", linewidth=1.8, label=f"{summary_policy.label().capitalize()} fit")
+    text = f"y0={summary_policy.scalar(y0):.2f}, b={summary_policy.scalar(b):.2f}, {display_policy.parameter_label()}={asymptote:.2f}"
     if fit.sigma_samples is not None:
-        text += f", sigma={float(np.median(fit.sigma_samples)):.2f}"
+        text += f", sigma={summary_policy.scalar(fit.sigma_samples):.2f}"
     axis.text(0.03, 0.05, text, transform=axis.transAxes, ha="left", va="bottom", fontsize=8, color="#333333")
 
 
@@ -200,7 +211,13 @@ def _legend_columns(labels: tuple[str, ...], available_width: float, font_size: 
     return 1 if not labels else max(1, min(len(labels), int(available_width // _legend_column_width(labels, font_size))))
 
 
-def _parameter_rows(prepared: PreparedData, decay_data: Mapping[str, EntityDecayData], include_sigma: bool, include_c: bool) -> list[list[str]]:
+def _parameter_rows(
+    prepared: PreparedData,
+    decay_data: Mapping[str, EntityDecayData],
+    include_sigma: bool,
+    include_c: bool,
+    summary_policy: PosteriorSummaryPolicy,
+) -> list[list[str]]:
     rows = []
     for index, entity in enumerate(prepared.entity_order):
         data = prepared.entities[entity]
@@ -213,11 +230,16 @@ def _parameter_rows(prepared: PreparedData, decay_data: Mapping[str, EntityDecay
             if include_sigma:
                 row.append("")
         else:
-            row = [label, f"{int(round(data.analysis_total)):,}", f"{float(np.median(fit.y0_samples)):.2f}", f"{float(np.median(fit.b_samples)):.2f}"]
+            row = [
+                label,
+                f"{int(round(data.analysis_total)):,}",
+                f"{summary_policy.scalar(fit.y0_samples):.2f}",
+                f"{summary_policy.scalar(fit.b_samples):.2f}",
+            ]
             if include_c:
-                row.append(f"{float(np.median(fit.c_samples)):.2f}")
+                row.append(f"{summary_policy.scalar(fit.c_samples):.2f}")
             if include_sigma:
-                row.append(f"{float(np.median(fit.sigma_samples)):.2f}" if fit.sigma_samples is not None else "")
+                row.append(f"{summary_policy.scalar(fit.sigma_samples):.2f}" if fit.sigma_samples is not None else "")
         rows.append(row)
     return rows
 
@@ -285,6 +307,7 @@ class AnalysisFigureRenderer:
             _plot_decay(
                 axes[row_index, 2], decay_data[entity], title=title, show_title=main_row,
                 show_y_label=main_row, show_x_label=last_row, display_policy=config.plot.decay_display,
+                summary_policy=config.plot.fit_summary,
             )
         minimum_year_label = str(config.year_selection.min_count_per_year)
         if config.year_selection.per_country_min_count_per_year:
@@ -312,7 +335,7 @@ class AnalysisFigureRenderer:
         if include_sigma:
             column_labels.append("sigma")
         table = table_axis.table(
-            cellText=_parameter_rows(prepared, decay_data, include_sigma, include_c),
+            cellText=_parameter_rows(prepared, decay_data, include_sigma, include_c, config.plot.fit_summary),
             colLabels=column_labels, loc="center", cellLoc="center", colLoc="center",
             colWidths=[0.20] * len(column_labels),
         )

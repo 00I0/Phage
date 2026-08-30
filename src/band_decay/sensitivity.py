@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -11,16 +10,16 @@ from .config import AnalysisConfig
 from .data import load_counts
 from .domain import CoveragePlan, DecayFit, PreparedData, RunResult, SensitivityResult
 from .pipeline import DecayAnalysis
-from .policies import DecayDisplayPolicy, TaxonRanker
+from .policies import DecayDisplayPolicy, PosteriorMedian, PosteriorSummaryPolicy, TaxonRanker
 
 FIT_SUMMARY_COLUMNS = (
     "coverage_percent", "country", "top_n", "eligible_taxa",
     "achieved_eligible_share_percent", "analysis_n", "y0", "b", "c", "divergences",
 )
 STABILITY_COLUMNS = (
-    "coverage_percent", "country", "auc_median", "auc_ci_low", "auc_ci_high",
-    "extrapolated_auc_median", "extrapolated_auc_fraction_median", "target_mh",
-    "p_never_hit", "time_to_target_mean", "time_to_target_ci_low", "time_to_target_ci_high",
+    "coverage_percent", "country", "auc_summary", "auc_ci_low", "auc_ci_high",
+    "extrapolated_auc_summary", "extrapolated_auc_fraction_summary", "target_mh",
+    "p_never_hit", "time_to_target_summary", "time_to_target_ci_low", "time_to_target_ci_high",
 )
 
 
@@ -93,7 +92,11 @@ def build_coverage_plan(prepared: PreparedData, config: AnalysisConfig, coverage
     )
 
 
-def _fit_summary_rows(result: RunResult, plan: CoveragePlan) -> list[dict[str, object]]:
+def _fit_summary_rows(
+    result: RunResult,
+    plan: CoveragePlan,
+    summary_policy: PosteriorSummaryPolicy,
+) -> list[dict[str, object]]:
     rows = []
     for country in result.config.input.countries:
         if country not in result.prepared.entities:
@@ -113,9 +116,9 @@ def _fit_summary_rows(result: RunResult, plan: CoveragePlan) -> list[dict[str, o
         }
         if fit is not None:
             row.update({
-                "y0": float(np.median(fit.y0_samples)),
-                "b": float(np.median(fit.b_samples)),
-                "c": float(np.median(fit.c_samples)),
+                "y0": summary_policy.scalar(fit.y0_samples),
+                "b": summary_policy.scalar(fit.b_samples),
+                "c": summary_policy.scalar(fit.c_samples),
                 "divergences": int(fit.divergences),
             })
         rows.append(row)
@@ -167,6 +170,7 @@ def stability_metrics(
     target_mh: float,
     minimum_pairs_for_supported_lag: int,
     display_policy: DecayDisplayPolicy,
+    summary_policy: PosteriorSummaryPolicy | None = None,
 ) -> dict[str, float]:
     """Summarize fitted decay stability, AUC, and target-crossing time.
 
@@ -177,10 +181,12 @@ def stability_metrics(
         target_mh: Similarity target for crossing-time metrics.
         minimum_pairs_for_supported_lag: Pair threshold for extrapolation.
         display_policy: Policy selecting the displayed curve scale.
+        summary_policy: Policy selecting the scalar summary statistic.
 
     Returns:
         Scalar stability metrics suitable for tabular reporting.
     """
+    summary = summary_policy or PosteriorMedian()
     y0, b, c = _displayed_decay_parameters(fit, display_policy)
     auc = _auc_draws(y0, b, c, 0.0, horizon_years)
     supported_lag = largest_supported_lag(x_pairs, minimum_pairs_for_supported_lag)
@@ -195,7 +201,7 @@ def stability_metrics(
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         times[crossing] = np.log1p((y0[crossing] - target_mh) / (target_mh - c[crossing])) / b[crossing]
     valid_times = times[np.isfinite(times) & (times >= 0)]
-    time_mean = float(np.mean(valid_times)) if len(valid_times) else np.nan
+    time_summary = summary.scalar(valid_times) if len(valid_times) else np.nan
     time_low, time_high = np.quantile(valid_times, [0.025, 0.975]) if len(valid_times) else (np.nan, np.nan)
     finite_auc = auc[np.isfinite(auc)]
     finite_extra = extrapolated_auc[np.isfinite(extrapolated_auc)]
@@ -203,14 +209,14 @@ def stability_metrics(
     if not len(finite_auc):
         raise ValueError("DecayFit produced no finite AUC draws.")
     return {
-        "auc_median": float(np.median(finite_auc)),
+        "auc_summary": summary.scalar(finite_auc),
         "auc_ci_low": float(np.quantile(finite_auc, 0.025)),
         "auc_ci_high": float(np.quantile(finite_auc, 0.975)),
-        "extrapolated_auc_median": float(np.median(finite_extra)) if len(finite_extra) else np.nan,
-        "extrapolated_auc_fraction_median": float(np.median(finite_fraction)) if len(finite_fraction) else np.nan,
+        "extrapolated_auc_summary": summary.scalar(finite_extra) if len(finite_extra) else np.nan,
+        "extrapolated_auc_fraction_summary": summary.scalar(finite_fraction) if len(finite_fraction) else np.nan,
         "target_mh": float(target_mh),
         "p_never_hit": float(np.mean(never_hit)),
-        "time_to_target_mean": time_mean,
+        "time_to_target_summary": time_summary,
         "time_to_target_ci_low": float(time_low),
         "time_to_target_ci_high": float(time_high),
     }
@@ -222,13 +228,15 @@ def build_stability_table(
     horizon_years: float = 20.0,
     target_mh: float | Iterable[float] = (0.3, 0.5, 0.7, 0.8, 0.9, 0.95),
     minimum_pairs_for_supported_lag: int = 4,
+    summary_policy: PosteriorSummaryPolicy | None = None,
 ) -> pd.DataFrame:
-    """Build stability metrics for fitted sensitivity runs and targets."""
+    """Build stability metrics using the configured posterior summary policy."""
     targets = (float(target_mh),) if np.isscalar(target_mh) else tuple(float(value) for value in target_mh)
     if not targets or any(not 0 <= target <= 1 for target in targets):
         raise ValueError("target_mh must contain values in [0, 1].")
     if float(horizon_years) <= 0 or int(minimum_pairs_for_supported_lag) < 1:
         raise ValueError("horizon_years must be positive and minimum pair count at least one.")
+    summary = summary_policy or PosteriorMedian()
     rows = []
     for coverage_percent, result in fitted_results:
         for target in targets:
@@ -243,6 +251,7 @@ def build_stability_table(
                         decay.fit, decay.x, horizon_years=float(horizon_years), target_mh=target,
                         minimum_pairs_for_supported_lag=int(minimum_pairs_for_supported_lag),
                         display_policy=result.config.plot.decay_display,
+                        summary_policy=summary,
                     ))
                 rows.append(row)
     return pd.DataFrame(rows, columns=list(STABILITY_COLUMNS))
@@ -280,9 +289,10 @@ class SensitivityRunner:
         fit_rows = []
         # Reuse one label universe so colors remain stable across coverage runs.
         for plan in plans:
-            variant = replace(
-                self.config,
-                top_n=replace(self.config.top_n, n=len(plan.global_selected_serotypes), per_country_n=dict(plan.country_n), global_selected_serotypes=plan.global_selected_serotypes),
+            variant = self.config.with_top_n(
+                n=len(plan.global_selected_serotypes),
+                per_country_n=dict(plan.country_n),
+                global_selected_serotypes=plan.global_selected_serotypes,
             )
             output_path = Path(self.sensitivity_config.output_directory) / self.sensitivity_config.filename_template.format(
                 coverage=plan.coverage_percent,
@@ -292,13 +302,14 @@ class SensitivityRunner:
                 raw_counts, fit=fit, output_path=output_path, palette_master_labels=stable_labels,
             )
             runs.append(result)
-            fit_rows.extend(_fit_summary_rows(result, plan))
+            fit_rows.extend(_fit_summary_rows(result, plan, self.sensitivity_config.fit_summary))
         fit_summary = pd.DataFrame(fit_rows, columns=list(FIT_SUMMARY_COLUMNS))
         stability_summary = build_stability_table(
             tuple(zip((plan.coverage_percent for plan in plans), runs, strict=True)),
             horizon_years=self.sensitivity_config.stability_horizon_years,
             target_mh=self.sensitivity_config.stability_targets,
             minimum_pairs_for_supported_lag=self.sensitivity_config.minimum_pairs_for_supported_lag,
+            summary_policy=self.sensitivity_config.stability_summary,
         )
         return SensitivityResult(plans=plans, runs=tuple(runs), fit_summary=fit_summary, stability_summary=stability_summary)
 

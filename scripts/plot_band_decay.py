@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 from band_decay import (
@@ -11,15 +10,24 @@ from band_decay import (
     DecayPriorConfig,
     DirectAsymptote,
     HalfNormalPrior,
+    InputConfig,
+    MorisitaHornConfig,
     NoTransientTaxa,
     NormalizedDecay,
+    OutputConfig,
     PerEntityTopN,
+    PlotConfig,
+    PosteriorMedian,
     SensitivityConfig,
     SensitivityResult,
     SensitivityRunner,
     SamplingConfig,
-    default_config,
     FixedObservationNoise,
+    QualifyingYears,
+    SkipTaxa,
+    TopNConfig,
+    UnionAvailableYears,
+    YearSelectionConfig,
 )
 
 
@@ -47,7 +55,7 @@ class SensitivityApplication:
                 f"country Top-N={dict(plan.country_n)}"
             )
         if not result.fit_summary.empty:
-            print("\nSensitivity results (posterior medians):")
+            print("\nSensitivity results (configured posterior summaries):")
             print(result.fit_summary.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
         print("\nStability results (draw-wise posterior summaries):")
         print(result.stability_summary.to_string(index=False, float_format=lambda value: f"{value:.6f}"))
@@ -91,17 +99,21 @@ def main() -> None:
         asymptote=DirectAsymptote(BetaPrior(alpha=2.0, beta=2.0)),
         noise=FixedObservationNoise(),
     )
-    base_config = default_config(data_path, countries, output_directory=output_directory)
-    config = replace(
-        base_config,
-        top_n=replace(
-            base_config.top_n,
+    config = AnalysisConfig(
+        input=InputConfig(data_path=data_path, countries=countries),
+        year_selection=YearSelectionConfig(
+            min_count_per_year=10,
+            selection=QualifyingYears(),
+            display_axis=UnionAvailableYears(),
+        ),
+        top_n=TopNConfig(
             n=0,
             per_country_n={},
             selection=PerEntityTopN(),
             per_country_min_year_count=min_year_count_by_country,
             transient=NoTransientTaxa(),
         ),
+        mh=MorisitaHornConfig(other_grouping=SkipTaxa(), transient_grouping=SkipTaxa()),
         sampling=SamplingConfig(
             draws=500,
             tune=500,
@@ -112,11 +124,12 @@ def main() -> None:
             observation_sigma=None,
             priors=priors,
         ),
-        plot=replace(
-            base_config.plot,
+        plot=PlotConfig(
             max_legend_labels=200,
             decay_display=NormalizedDecay(),
+            fit_summary=PosteriorMedian(),
         ),
+        output=OutputConfig(output_directory=output_directory),
     )
     sensitivity_config = SensitivityConfig(
         coverage_percentages=coverage_percentages,
@@ -125,6 +138,8 @@ def main() -> None:
         stability_horizon_years=stability_horizon_years,
         stability_targets=stability_targets,
         minimum_pairs_for_supported_lag=minimum_pairs_for_supported_lag,
+        fit_summary=PosteriorMedian(),
+        stability_summary=PosteriorMedian(),
     )
     SensitivityApplication(config, sensitivity_config, fit=fit).run()
 

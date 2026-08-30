@@ -114,6 +114,10 @@ class DecayFit:
         """Return the pointwise median of the posterior curves."""
         return np.median(self.curve_draws(x_values), axis=0)
 
+    def mean_curve(self, x_values: np.ndarray) -> np.ndarray:
+        """Return the pointwise mean of the posterior curves."""
+        return np.mean(self.curve_draws(x_values), axis=0)
+
     def interval(self, x_values: np.ndarray, q: float = 0.95) -> tuple[np.ndarray, np.ndarray]:
         """Return a central posterior interval on the original scale.
 
@@ -143,6 +147,10 @@ class DecayFit:
     def normalized_median_curve(self, x_values: np.ndarray) -> np.ndarray:
         """Return the pointwise median of normalized posterior curves."""
         return np.nanmedian(self.normalized_curve_draws(x_values), axis=0)
+
+    def normalized_mean_curve(self, x_values: np.ndarray) -> np.ndarray:
+        """Return the pointwise mean of normalized posterior curves."""
+        return np.nanmean(self.normalized_curve_draws(x_values), axis=0)
 
     def normalized_interval(self, x_values: np.ndarray, q: float = 0.95) -> tuple[np.ndarray, np.ndarray]:
         """Return a central posterior interval on the normalized scale."""
@@ -191,22 +199,3 @@ class SensitivityResult:
     runs: tuple[RunResult, ...]
     fit_summary: pd.DataFrame
     stability_summary: pd.DataFrame
-
-
-@dataclass(frozen=True)
-class CurveParameters:
-    """Parameters of ``c + (y0 - c) * exp(-b * x)``."""
-
-    y0: float
-    b: float
-    c: float
-
-    def evaluate(self, x_values: np.ndarray) -> np.ndarray:
-        """Evaluate the curve at lag values.
-
-        Args:
-            x_values: Lag values at which to evaluate the curve.
-        Returns:
-            Curve values with the shape of ``x_values``.
-        """
-        return self.c + (self.y0 - self.c) * np.exp(-self.b * np.asarray(x_values, dtype=float))

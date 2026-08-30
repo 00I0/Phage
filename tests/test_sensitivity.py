@@ -18,6 +18,8 @@ from band_decay import (
     PaletteBuilder,
     PaletteSettings,
     PlotConfig,
+    PosteriorMean,
+    PosteriorMedian,
     SamplingConfig,
     SensitivityConfig,
     SensitivityRunner,
@@ -88,5 +90,23 @@ def test_stability_handles_zero_decay_and_already_reached_target() -> None:
         fit, np.asarray([1, 1, 2]), horizon_years=10, target_mh=0.5,
         minimum_pairs_for_supported_lag=1, display_policy=OriginalDecay(),
     )
-    assert metrics["time_to_target_mean"] == 0.0
-    assert metrics["auc_median"] > 0
+    assert metrics["time_to_target_summary"] == 0.0
+    assert metrics["auc_summary"] > 0
+
+
+def test_stability_summary_policy_selects_mean_or_median() -> None:
+    fit = DecayFit(
+        y0_samples=np.asarray([0.1, 0.9, 0.9]),
+        b_samples=np.asarray([0.2, 0.2, 0.2]),
+        c_samples=np.asarray([0.1, 0.1, 0.1]),
+    )
+    common = {
+        "x_pairs": np.asarray([1, 1, 2]),
+        "horizon_years": 10,
+        "target_mh": 0.5,
+        "minimum_pairs_for_supported_lag": 1,
+        "display_policy": OriginalDecay(),
+    }
+    mean = stability_metrics(fit, summary_policy=PosteriorMean(), **common)
+    median = stability_metrics(fit, summary_policy=PosteriorMedian(), **common)
+    assert mean["auc_summary"] != median["auc_summary"]
