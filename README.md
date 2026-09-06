@@ -7,10 +7,10 @@ coverage sensitivity analysis, and fitted-curve figures.
 ## Project structure
 
 - `src/band_decay/` contains the analysis package.
-- `data/` contains the input data and fitted curve data. The examples expect
+- `data/` contains the input data, band-decay data, and plotting palette. The examples expect
   `serotype_counts_country_ds_geodate2-2.tsv`, a tab-separated file with
-  `country`, `collection_year`, `serotype`, and `count` columns. Generated plots
-  are written to `plots/` and the exported R curve data stays in `data/`.
+  `country`, `collection_year`, `serotype`, and `count` columns.
+- Generated plots are written to `plots/` and the exported R data stays in `data/`.
 - `scripts/` contains the standalone Python and R workflows.
 - `notebooks/` contains an interactive version of the analysis.
 - `plots/` stores generated figures, while `tests/` contains automated tests.
@@ -18,8 +18,10 @@ coverage sensitivity analysis, and fitted-curve figures.
 ## Scripts
 
 - `plot_band_decay.py` runs the exponential curve fitting and creates the stack plots.
+- `plot_band_decay.R` recreates the combined band-decay figure from the exported R data.
+- `list_serotype_abundance.py` ranks serotypes by total abundance in the raw count data.
 - `plot_fitted_country_curves.py` fits and plots one decay curve per country on the same plot.
-- `update_fitted_country_curves_data.py` updates the R curve data file.
+- `update_fitted_country_curves_data.py` updates the R band-decay data and palette files.
 - `plot_fitted_country_curves.R` reads that file and creates the R curve plot.
 
 ## Installation
@@ -107,14 +109,38 @@ Or with:
 PYTHONPATH=src python scripts/plot_fitted_country_curves.py
 ```
 
+To list serotypes ordered by the sum of their counts across the selected
+countries and all years, run:
+
+```bash
+python scripts/list_serotype_abundance.py
+```
+
+Adjust `SELECTED_COUNTRIES` and `LIMIT` near the top of
+`scripts/list_serotype_abundance.py` to change the countries or number of
+serotypes shown.
+
 Update the data used by the R plot and then render it with:
 
 ```bash
 PYTHONPATH=src python scripts/update_fitted_country_curves_data.py
 Rscript scripts/plot_fitted_country_curves.R
+Rscript scripts/plot_band_decay.R
 ```
 
-The R script requires R and the `ggplot2` package. 
+To limit the band-decay legend to selected serotypes, edit the
+`LEGEND_SEROTYPES` list at the top of `scripts/plot_band_decay.R`. Serotypes
+omitted from the legend remain in the stacks with a subtle stipple texture:
+
+```r
+LEGEND_SEROTYPES <- c("ST512-KL107", "ST147-KL64", "ST258-KL106", "Other")
+```
+
+The exporter writes `data/band_decay_data.R` with both the fitted-country
+curve payload and the combined band-decay figure data. It writes reusable
+country and serotype colors to `data/palette.R`.
+
+The R scripts require R and the `ggplot2` and `gtable` packages.
 
 Start the notebook from the
 project directory so its relative data path and `src` package path resolve:

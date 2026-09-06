@@ -1,17 +1,6 @@
 #!/usr/bin/env Rscript
 
 INTERVAL_ALPHA <- 0.0625
-COUNTRY_COLORS <- c(
-  Greece = "#1f77b4",
-  Italy = "#ff7f0e",
-  Spain = "#2ca02c",
-  Russia = "#d62728",
-  `United Kingdom` = "#9467bd",
-  France = "#8c564b",
-  Germany = "#e377c2",
-  Switzerland = "#7f7f7f"
-)
-
 load_curve_data <- function(data_file) {
   if (!file.exists(data_file)) {
     stop(sprintf("Curve data file not found: %s", data_file))
@@ -24,7 +13,21 @@ load_curve_data <- function(data_file) {
   data_environment$curve_data
 }
 
-curve_data <- load_curve_data("data/fitted_country_curves_data.R")
+load_palette_data <- function(data_file) {
+  if (!file.exists(data_file)) {
+    stop(sprintf("Palette file not found: %s", data_file))
+  }
+  data_environment <- new.env(parent = baseenv())
+  sys.source(data_file, envir = data_environment)
+  if (!exists("palette_data", envir = data_environment, inherits = FALSE)) {
+    stop("Palette file must define palette_data.")
+  }
+  data_environment$palette_data
+}
+
+curve_data <- load_curve_data("data/band_decay_data.R")
+palette_data <- load_palette_data("data/palette.R")
+COUNTRY_COLORS <- palette_data$country_colors
 HORIZON_YEARS <- curve_data$horizon_years
 lag_years <- curve_data$lag_years
 country_curves <- curve_data$country_curves
