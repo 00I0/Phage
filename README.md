@@ -128,6 +128,13 @@ Rscript scripts/plot_fitted_country_curves.R
 Rscript scripts/plot_band_decay.R
 ```
 
+Set `aggregate_mode` in the final `render_curve_plot()` call in
+`scripts/plot_fitted_country_curves.R` to one of three modes:
+
+- `"none"`: show country curves without an aggregate.
+- `"selected"`: add the aggregate of the exporter's configured `COUNTRIES`.
+- `"all"`: add the aggregate of every country present in the input TSV.
+
 To limit the band-decay legend to selected serotypes, edit the
 `LEGEND_SEROTYPES` list at the top of `scripts/plot_band_decay.R`. Serotypes
 omitted from the legend remain in the stacks with a subtle stipple texture:
@@ -136,9 +143,16 @@ omitted from the legend remain in the stacks with a subtle stipple texture:
 LEGEND_SEROTYPES <- c("ST512-KL107", "ST147-KL64", "ST258-KL106", "Other")
 ```
 
-The exporter writes `data/band_decay_data.R` with both the fitted-country
-curve payload and the combined band-decay figure data. It writes reusable
-country and serotype colors to `data/palette.R`.
+The exporter always writes both aggregates (`GLOBAL` for selected countries,
+`GLOBAL_ALL` for all input countries) and the selected country curves to
+`data/band_decay_data.R`, alongside the combined band-decay figure data.
+The all-country aggregate uses the same analysis settings, including each
+country's qualifying years; it adds only one extra fit. `MIN_YEAR_COUNT = 2.0`
+sets the default minimum yearly serotype count, with existing
+`MIN_YEAR_COUNT_BY_COUNTRY` overrides retained. This is separate from the
+minimum total count of 10 used to select qualifying years.
+Reusable country, aggregate, and serotype colors go to `data/palette.R`.
+Rerun the exporter to add the new aggregate to older data files.
 
 The R scripts require R and the `ggplot2` and `gtable` packages.
 

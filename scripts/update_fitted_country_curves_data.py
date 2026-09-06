@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,7 @@ from band_decay import (
     UnionAvailableYears,
     YearSelectionConfig,
 )
+from band_decay.data import load_counts
 from band_decay.domain import EntityDecayData, RunResult
 from band_decay.preparation import counts_to_props
 
@@ -46,6 +48,7 @@ COUNTRIES = (
     "Germany",
     "Switzerland",
 )
+MIN_YEAR_COUNT = 2.0
 MIN_YEAR_COUNT_BY_COUNTRY = {
     "United Kingdom": 2.0,
     "Switzerland": 2.0,
@@ -68,6 +71,8 @@ R_VALUES_PER_LINE = 12
 R_VALUE_PRECISION = 4
 R_CURVE_PRECISION = 8
 COUNTRY_COLORS = {
+    "GLOBAL": "#000000",
+    "GLOBAL_ALL": "#000000",
     "Greece": "#1f77b4",
     "Italy": "#ff7f0e",
     "Spain": "#2ca02c",
@@ -101,6 +106,7 @@ def build_config(project_directory: Path) -> AnalysisConfig:
             n=0,
             per_country_n={},
             selection=PerEntityTopN(),
+            min_year_count=MIN_YEAR_COUNT,
             per_country_min_year_count=MIN_YEAR_COUNT_BY_COUNTRY,
             transient=NoTransientTaxa(),
         ),
@@ -118,6 +124,23 @@ def build_config(project_directory: Path) -> AnalysisConfig:
         plot=PlotConfig(),
         output=OutputConfig(output_directory=project_directory / "plots"),
     )
+
+
+def fit_all_countries_aggregate(config: AnalysisConfig) -> EntityDecayData:
+    """Fit only the aggregate using every country present in the input file."""
+    counts = load_counts(config.input.data_path)
+    all_countries_config = replace(
+        config,
+        input=replace(config.input, countries=tuple(sorted(counts["country"].unique()))),
+    )
+    analysis = DecayAnalysis(all_countries_config)
+    prepared = analysis.prepare(counts)
+    aggregate_prepared = replace(
+        prepared,
+        entity_order=("GLOBAL",),
+        entities={"GLOBAL": prepared.entities["GLOBAL"]},
+    )
+    return analysis.fit(aggregate_prepared)["GLOBAL"]
 
 
 def finite_fit_end(decay: EntityDecayData, country_name: str) -> float:
@@ -455,6 +478,7 @@ def build_band_config(project_directory: Path) -> AnalysisConfig:
             n=0,
             per_country_n={},
             selection=PerEntityTopN(),
+            min_year_count=MIN_YEAR_COUNT,
             per_country_min_year_count=MIN_YEAR_COUNT_BY_COUNTRY,
             transient=NoTransientTaxa(),
         ),
@@ -499,10 +523,11 @@ def main() -> None:
     analysis = DecayAnalysis(config)
     prepared = analysis.prepare()
     decay_data = analysis.fit(prepared)
+    decay_data["GLOBAL_ALL"] = fit_all_countries_aggregate(config)
     band_config = build_band_config(project_directory)
     band_result = SensitivityRunner(band_config, build_sensitivity_config(project_directory)).run(fit=True)
     band_run = band_result.runs[0]
-    entity_order = prepared.entity_order[1:]
+    entity_order = ("GLOBAL", "GLOBAL_ALL", *prepared.entity_order[1:])
     data_file = project_directory / OUTPUT_RELATIVE_PATH
     palette_file = project_directory / PALETTE_OUTPUT_RELATIVE_PATH
     data_file.parent.mkdir(parents=True, exist_ok=True)

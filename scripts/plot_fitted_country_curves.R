@@ -134,13 +134,36 @@ build_plot_data <- function(curves, x_values) {
   list(band = band_data, lines = line_data)
 }
 
-render_curve_plot <- function(curves, x_values, output_file, show_confidence_intervals = TRUE) {
+render_curve_plot <- function(
+  curves,
+  x_values,
+  output_file,
+  show_confidence_intervals = TRUE,
+  aggregate_mode = "none"
+) {
   if (
     !is.logical(show_confidence_intervals) ||
       length(show_confidence_intervals) != 1L ||
       is.na(show_confidence_intervals)
   ) {
     stop("show_confidence_intervals must be a single TRUE or FALSE value.")
+  }
+  if (
+    !is.character(aggregate_mode) || length(aggregate_mode) != 1L ||
+      is.na(aggregate_mode) || !aggregate_mode %in% c("none", "selected", "all")
+  ) {
+    stop('aggregate_mode must be one of "none", "selected", or "all".')
+  }
+  aggregate_entity <- switch(aggregate_mode, none = character(0), selected = "GLOBAL", all = "GLOBAL_ALL")
+  if (length(aggregate_entity) > 0 && !aggregate_entity %in% names(curves)) {
+    stop(sprintf(
+      "Aggregate curve data for mode '%s' is missing. Run scripts/update_fitted_country_curves_data.py first.",
+      aggregate_mode
+    ))
+  }
+  curves <- curves[!names(curves) %in% c("GLOBAL", "GLOBAL_ALL") | names(curves) %in% aggregate_entity]
+  if (length(curves) == 0) {
+    stop("No fitted decay curves are available to plot.")
   }
   validate_curve_data(curves, x_values)
   plot_data <- build_plot_data(curves, x_values)
@@ -167,7 +190,14 @@ render_curve_plot <- function(curves, x_values, output_file, show_confidence_int
       aes(linetype = section, group = interaction(country, section)),
       linewidth = 0.9
     ) +
-    scale_color_manual(values = country_colors, breaks = country_names) +
+    scale_color_manual(
+      values = country_colors,
+      breaks = country_names,
+      labels = ifelse(
+        country_names == "GLOBAL", "Selected-country aggregate",
+        ifelse(country_names == "GLOBAL_ALL", "All-country aggregate", country_names)
+      )
+    ) +
     scale_fill_manual(values = country_colors, guide = "none") +
     scale_linetype_manual(
       values = c(Fitted = "solid", Extrapolated = "dashed"),
@@ -198,4 +228,10 @@ render_curve_plot <- function(curves, x_values, output_file, show_confidence_int
   ggsave(output_file, plot = plot, width = 10, height = 6, units = "in", dpi = 300, bg = "white")
 }
 
-render_curve_plot(country_curves, lag_years, output_path, show_confidence_intervals = FALSE)
+render_curve_plot(
+  country_curves,
+  lag_years,
+  output_path,
+  show_confidence_intervals = FALSE,
+  aggregate_mode = "all"
+)

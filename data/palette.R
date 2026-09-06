@@ -1,5 +1,7 @@
 palette_data <- list(
   country_colors = c(
+    `GLOBAL` = "#000000",
+    `GLOBAL_ALL` = "#000000",
     `Greece` = "#1f77b4",
     `Italy` = "#ff7f0e",
     `Spain` = "#2ca02c",
