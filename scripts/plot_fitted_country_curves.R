@@ -233,5 +233,5 @@ render_curve_plot(
   lag_years,
   output_path,
   show_confidence_intervals = FALSE,
-  aggregate_mode = "all"
+  aggregate_mode = "none"
 )
