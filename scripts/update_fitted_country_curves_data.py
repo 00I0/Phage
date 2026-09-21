@@ -94,7 +94,7 @@ def build_config(project_directory: Path) -> AnalysisConfig:
     )
     return AnalysisConfig(
         input=InputConfig(
-            data_path=project_directory / "data/serotype_counts_country_ds_geodate2-2.tsv",
+            data_path=project_directory / "data/serotype_counts_country_ds_geodate2-3.tsv",
             countries=COUNTRIES,
         ),
         year_selection=YearSelectionConfig(
@@ -466,7 +466,7 @@ def build_band_config(project_directory: Path) -> AnalysisConfig:
     )
     return AnalysisConfig(
         input=InputConfig(
-            data_path=project_directory / "data/serotype_counts_country_ds_geodate2-2.tsv",
+            data_path=project_directory / "data/serotype_counts_country_ds_geodate2-3.tsv",
             countries=COUNTRIES,
         ),
         year_selection=YearSelectionConfig(

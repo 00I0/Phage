@@ -34,7 +34,7 @@ from .domain import (
     SensitivityResult,
 )
 from .fitting import DecayFitter, NoOpFitter, PyMCDecayFitter, fit_entities
-from .palette import DEFAULT_PALETTE_SETTINGS, PaletteBuilder, PaletteSettings, build_taxon_palette, palette_diagnostics
+from .palette import DEFAULT_PALETTE_SETTINGS, PaletteBuilder, PaletteSettings, build_taxon_palette, palette_diagnostics, reconcile_palette
 from .pipeline import DecayAnalysis, prepare_data, run_top_n_sweep
 from .policies import (
     AllAvailableYears,
@@ -136,5 +136,5 @@ __all__ = [
     "load_counts", "masked_display_years", "output_path_for_config", "palette_diagnostics", "prepare_data", "rank_serotypes",
     "raw_entity_counts", "render_figure", "render_fitted_curves", "resolve_configured_countries", "run_sensitivity",
     "run_top_n_sweep", "select_years_for_entity", "stability_metrics", "top_n_for_coverage", "validate_counts_frame",
-    "DEFAULT_PALETTE_SETTINGS",
+    "DEFAULT_PALETTE_SETTINGS", "reconcile_palette",
 ]

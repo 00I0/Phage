@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -45,6 +45,7 @@ def build_taxon_palette(
         settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS,
         master_labels: Sequence[str] | None = None,
         master_displayed_stacks: Mapping[Any, pd.DataFrame] | Iterable[pd.DataFrame] | None = None,
+        reference_palette: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Build a deterministic, hierarchical abundance- and adjacency-aware palette.
 
@@ -98,7 +99,15 @@ def build_taxon_palette(
             _PALETTE_CACHE[cache_key] = dynamic_colors
     color_by_taxon = dict(zip(optimization_taxa, dynamic_colors, strict=True))
     palette.update({taxon: color_by_taxon[taxon] for taxon in dynamic_requested})
-    return {label: palette[label] for label in ordered_labels}
+    result = {label: palette[label] for label in ordered_labels}
+    if reference_palette is not None:
+        result = reconcile_palette(
+            candidate_palette=result,
+            reference_palette=reference_palette,
+            labels=ordered_labels,
+            settings=settings,
+        )
+    return result
 
 
 def _optimize_palette(
@@ -940,6 +949,102 @@ def _range_after_candidates(
     return np.clip((proposed_max - proposed_min) / span, 0.0, 1.0)
 
 
+def reconcile_palette(
+        candidate_palette: Mapping[str, str],
+        reference_palette: Mapping[str, str],
+        *,
+        labels: Sequence[str] | None = None,
+        settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS,
+) -> dict[str, str]:
+    """Reconcile a candidate palette with a reference palette.
+
+    Every serotype present in reference_palette retains its exact color from
+    reference_palette. Serotypes only present in candidate_palette (or labels)
+    receive unique colors, resolving collisions via color switching and unused
+    candidate pool colors.
+
+    Args:
+        candidate_palette: Freshly generated or proposed palette.
+        reference_palette: Base reference palette whose colors take precedence.
+        labels: Optional explicit ordering / subset of serotype labels.
+        settings: Palette generation settings for candidate pools.
+
+    Returns:
+        A dictionary mapping each serotype to a unique hex color code.
+    """
+    if labels is not None:
+        all_serotypes = tuple(dict.fromkeys(str(label) for label in labels))
+    else:
+        ref_regular = [k for k in reference_palette.keys() if k not in _SPECIAL_TAXA]
+        cand_regular = [k for k in candidate_palette.keys() if k not in _SPECIAL_TAXA]
+        combined = list(dict.fromkeys(ref_regular + cand_regular))
+        for special in _SPECIAL_TAXA:
+            if special in reference_palette or special in candidate_palette:
+                combined.append(special)
+        all_serotypes = tuple(combined)
+
+    current_colors: dict[str, str | None] = dict(candidate_palette)
+    for s in all_serotypes:
+        if s not in current_colors:
+            current_colors[s] = reference_palette.get(s)
+
+    # Step 1: Color switching for serotypes present in reference_palette
+    for s in all_serotypes:
+        if s not in reference_palette:
+            continue
+        target_color = reference_palette[s]
+        if current_colors.get(s) == target_color:
+            continue
+        holder = None
+        for other_s, col in current_colors.items():
+            if other_s != s and col == target_color:
+                holder = other_s
+                break
+        if holder is not None:
+            current_colors[holder] = current_colors.get(s)
+            current_colors[s] = target_color
+        else:
+            current_colors[s] = target_color
+
+    # Step 2: Ensure unique colors for all serotypes
+    used_colors: set[str] = set()
+    for s in all_serotypes:
+        if s in reference_palette:
+            col = current_colors[s]
+            if col is not None:
+                used_colors.add(col)
+
+    pool_size = max(int(settings.candidate_count), len(all_serotypes) * 2, 200)
+    pools = (
+        _candidate_pool(settings, _TIER_HERO, pool_size).hexes
+        + _candidate_pool(settings, _TIER_INTERMEDIATE, pool_size).hexes
+        + _candidate_pool(settings, _TIER_RARE, pool_size).hexes
+    )
+    pool_hexes = list(dict.fromkeys(pools))
+    pool_idx = 0
+
+    for s in all_serotypes:
+        if s in reference_palette:
+            continue
+        if s in _SPECIAL_TAXA:
+            special_color = settings.other_color if s == OTHER_TAXON else settings.transient_color
+            current_colors[s] = special_color
+            used_colors.add(special_color)
+            continue
+        col = current_colors.get(s)
+        if col is None or col in used_colors:
+            while pool_idx < len(pool_hexes) and pool_hexes[pool_idx] in used_colors:
+                pool_idx += 1
+            if pool_idx >= len(pool_hexes):
+                raise ValueError("Exhausted candidate pool while assigning unique colors.")
+            col = pool_hexes[pool_idx]
+            pool_idx += 1
+            current_colors[s] = col
+        used_colors.add(col)
+
+    return {s: current_colors[s] for s in all_serotypes}
+
+
 class PaletteBuilder:
     """Build palettes through the legacy-compatible palette strategy."""
 
@@ -954,6 +1059,7 @@ class PaletteBuilder:
         displayed_stacks: Mapping[Any, pd.DataFrame] | Iterable[pd.DataFrame] | None = None,
         master_labels: Sequence[str] | None = None,
         master_displayed_stacks: Mapping[Any, pd.DataFrame] | Iterable[pd.DataFrame] | None = None,
+        reference_palette: Mapping[str, str] | None = None,
     ) -> dict[str, str]:
         """Build a deterministic palette for the requested labels.
 
@@ -962,6 +1068,7 @@ class PaletteBuilder:
             displayed_stacks: Displayed count stacks used for optimization.
             master_labels: Stable label universe used to anchor colors.
             master_displayed_stacks: Displayed stacks for the stable universe.
+            reference_palette: Optional reference palette to preserve existing colors.
 
         Returns:
             Mapping from each requested label to a hexadecimal color.
@@ -972,4 +1079,5 @@ class PaletteBuilder:
             settings=self.settings,
             master_labels=master_labels,
             master_displayed_stacks=master_displayed_stacks,
+            reference_palette=reference_palette,
         )
