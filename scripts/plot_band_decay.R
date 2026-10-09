@@ -7,25 +7,32 @@ library(grid)
 
 DATA_FILE <- "data/band_decay_data.R"
 PALETTE_FILE <- "data/palette.R"
-OUTPUT_FILE <- "plots/band_decay_90pct_r.png"
-LEGEND_SEROTYPES <- c(
-  "ST512-KL107",
-  "ST147-KL64",
-  "ST258-KL106",
-  "ST11-KL24",
-  "ST307-KL102",
-  "ST101-KL17",
-  "ST395-KL2",
-  "ST258-KL107",
-  "ST405-KL151",
-  "ST15-KL112",
-  "ST11-KL105",
-  "ST147-KL107",
-  "ST15-KL24",
-  "ST231-KL51",
-  "ST39-KL23",
-  "ST392-KL27"
-)
+OUTPUT_FILE <- "plots/band_decay_90pct_r_all_in_legend.png"
+OUTPUT_FORMATS <- c("png", "pdf")
+BASE_TEXT_SIZE <- 12
+AXIS_TITLE_SIZE <- 14
+HEADING_TEXT_SIZE <- 16
+FIGURE_TITLE_SIZE <- 24
+# Leave as NULL to show every displayed serotype; uncomment the vector to select 16.
+LEGEND_SEROTYPES <- NULL
+# LEGEND_SEROTYPES <- c(
+#   "ST512-KL107",
+#   "ST147-KL64",
+#   "ST258-KL106",
+#   "ST11-KL24",
+#   "ST307-KL102",
+#   "ST101-KL17",
+#   "ST395-KL2",
+#   "ST258-KL107",
+#   "ST405-KL151",
+#   "ST15-KL112",
+#   "ST11-KL105",
+#   "ST147-KL107",
+#   "ST15-KL24",
+#   "ST231-KL51",
+#   "ST39-KL23",
+#   "ST392-KL27"
+# )
 
 load_r_object <- function(data_file, object_name) {
   data_environment <- new.env(parent = baseenv())
@@ -52,7 +59,7 @@ if (!is.null(LEGEND_SEROTYPES)) {
     warning(sprintf("Legend serotypes are not in the exported display columns and will be omitted: %s", paste(unknown_serotypes, collapse = ", ")))
   }
 }
-legend_serotypes <- if (is.null(LEGEND_SEROTYPES)) display_columns else LEGEND_SEROTYPES[LEGEND_SEROTYPES %in% display_columns]
+legend_serotypes <- if (is.null(LEGEND_SEROTYPES)) NULL else LEGEND_SEROTYPES[LEGEND_SEROTYPES %in% display_columns]
 
 # Data preparation and labels --------------------------------------------------
 
@@ -62,10 +69,6 @@ format_count <- function(values) {
 
 entity_label <- function(entity_name) {
   if (entity_name == "GLOBAL") "European aggregate" else entity_name
-}
-
-strike_text <- function(value) {
-  paste0(strsplit(as.character(value), "", fixed = TRUE)[[1]], "\u0336", collapse = "")
 }
 
 entity_frame <- function(entity_name) {
@@ -131,19 +134,19 @@ makeContent.year_hatch <- function(grob) {
   ), strokes)))
 }
 
-base_plot_theme <- theme_minimal(base_size = 9, base_family = "sans") +
+base_plot_theme <- theme_minimal(base_size = BASE_TEXT_SIZE, base_family = "sans") +
   theme(
     panel.grid.minor = element_blank(),
     panel.grid.major = element_line(color = "#e8ecf0", linewidth = 0.25),
     panel.grid.major.x = element_blank(),
     legend.position = "none",
-    axis.title = element_text(color = "#475569", size = 9),
-    axis.text = element_text(color = "#475569", size = 8),
-    axis.text.x = element_text(size = 9, angle = 45, hjust = 1, vjust = 1, margin = margin(t = 4)),
+    axis.title = element_text(color = "#334155", size = AXIS_TITLE_SIZE),
+    axis.text = element_text(color = "#475569", size = BASE_TEXT_SIZE),
+    axis.text.x = element_text(size = BASE_TEXT_SIZE, angle = 45, hjust = 1, vjust = 1, margin = margin(t = 4)),
     axis.line.x = element_line(color = "#aeb8c4", linewidth = 0.25),
     axis.ticks.x = element_line(color = "#aeb8c4", linewidth = 0.25),
     axis.ticks.length = unit(2, "pt"),
-    plot.title = element_text(face = "bold", size = 11, color = "#1e293b", margin = margin(b = 9)),
+    plot.title = element_text(face = "bold", size = HEADING_TEXT_SIZE, color = "#1e293b", margin = margin(b = 12)),
     plot.margin = margin(6, 10, 8, 6)
   )
 
@@ -156,7 +159,7 @@ add_count_labels <- function(plot, plot_data, y_limit) {
   labels_data$y <- labels_data$count + 0.015 * y_limit
   plot + geom_text(
     data = labels_data, aes(x = year, y = y, label = label), inherit.aes = FALSE,
-    size = 2.1, color = "#333333", vjust = 0
+    size = BASE_TEXT_SIZE, size.unit = "pt", color = "#333333", vjust = 0
   )
 }
 
@@ -170,9 +173,6 @@ build_stack_plot <- function(entity_name, plot_data, relative, show_title, show_
   y_limit <- if (relative) 1 else absolute_ylim * 1.04
   if (y_limit <= 0) y_limit <- 1
   labels <- as.character(years)
-  if (isTRUE(plot_config$strike_excluded_year_labels)) {
-    labels[years %in% marked] <- vapply(years[years %in% marked], strike_text, character(1))
-  }
   panel_labels <- labs(
     title = if (show_title) paste(if (relative) "Relative" else "Absolute", "abundance"),
     x = if (show_x_label) "Collection year",
@@ -218,8 +218,8 @@ build_decay_plot <- function(entity_name, show_title, show_y_label, show_x_label
   decay <- entity$decay
   observed <- data.frame(lag = as.numeric(decay$lag), similarity = as.numeric(decay$similarity))
   xmax <- max(1, observed$lag)
-  title <- if (show_title) "Morisita–Horn decay" else NULL
-  y_label <- if (show_y_label) "Similarity (y0-normalized fit)" else NULL
+  title <- if (show_title) "Morisita-Horn decay" else NULL
+  y_label <- if (show_y_label) "Similarity" else NULL
   plot <- ggplot(observed, aes(x = lag, y = similarity)) +
     geom_point(size = 1.8, alpha = 0.65, color = "#222222", stroke = 0) +
     scale_x_continuous(breaks = seq(0, xmax, by = max(1, floor(xmax / 5))), limits = c(0, xmax * 1.04), expand = c(0, 0)) +
@@ -231,7 +231,7 @@ build_decay_plot <- function(entity_name, show_title, show_y_label, show_x_label
   fit <- decay$fit
   if (is.null(fit)) {
     return(plot + coord_cartesian(ylim = c(0, 1.02)) + annotate(
-      "text", x = xmax / 2, y = 0.5, label = "Not fit\n< 3 lag pairs", color = "#555555", size = 2.7
+      "text", x = xmax / 2, y = 0.5, label = "Not fit\n< 3 lag pairs", color = "#555555", size = BASE_TEXT_SIZE, size.unit = "pt"
     ))
   }
   fit_data <- data.frame(
@@ -241,8 +241,6 @@ build_decay_plot <- function(entity_name, show_title, show_y_label, show_x_label
   lower_limit <- min(c(0, observed$similarity, fit_data$lower), na.rm = TRUE)
   plotted_upper <- upper_limit * 1.05
   # The export supplies normalized curves, but the table retains raw fit parameters.
-  annotation <- sprintf("y0=%.2f, b=%.2f, c/y0=%.2f", 1, fit$b, fit$c / fit$y0)
-  if (!is.null(fit$sigma)) annotation <- paste0(annotation, sprintf(", sigma=%.2f", fit$sigma))
   plot +
     geom_ribbon(
       data = fit_data, aes(x = lag, ymin = lower, ymax = upper), inherit.aes = FALSE,
@@ -251,37 +249,32 @@ build_decay_plot <- function(entity_name, show_title, show_y_label, show_x_label
     geom_line(
       data = fit_data, aes(x = lag, y = median), inherit.aes = FALSE, color = "#1f4e79", linewidth = 0.7
     ) +
-    coord_cartesian(ylim = c(lower_limit, plotted_upper)) +
-    annotate(
-      "text", x = xmax * 0.03, y = lower_limit + 0.05 * (plotted_upper - lower_limit),
-      label = annotation, hjust = 0, vjust = 0, size = 2.3, color = "#333333"
-    )
+    coord_cartesian(ylim = c(lower_limit, plotted_upper))
 }
 
 # Legend and parameter table ---------------------------------------------------
 
-make_legend_grob <- function(labels, colors, max_labels, columns = 7L) {
-  labels <- labels[seq_len(min(length(labels), max_labels))]
+make_legend_grob <- function(labels, colors, columns = 6L) {
   if (length(labels) == 0L) return(nullGrob())
   colors <- unname(colors[labels])
   columns <- min(columns, length(labels))
   rows <- ceiling(length(labels) / columns)
   legend <- gtable::gtable(
-    widths = rep(unit.c(unit(0.24, "in"), unit(1, "null")), columns),
-    heights = unit(c(0.32, rep(0.20, rows)), "in")
+    widths = rep(unit.c(unit(0.32, "in"), unit(1, "null")), columns),
+    heights = unit(c(0.42, rep(0.30, rows)), "in")
   )
   heading <- textGrob(
-    "MLST-CPS types", x = 0, just = "left", gp = gpar(fontsize = 10, fontface = "bold", col = "#1e293b")
+    "MLST-CPS types", x = 0, just = "left", gp = gpar(fontsize = HEADING_TEXT_SIZE, fontface = "bold", col = "#1e293b")
   )
   legend <- gtable::gtable_add_grob(legend, heading, t = 1, l = 1, b = 1, r = columns * 2)
   for (index in seq_along(labels)) {
     row <- (index - 1L) %% rows + 2L
     column <- ((index - 1L) %/% rows) * 2L + 1L
     swatch <- rectGrob(
-      x = 0, just = "left", width = unit(0.18, "in"), height = unit(0.085, "in"),
+      x = 0, just = "left", width = unit(0.22, "in"), height = unit(0.22, "in"),
       gp = gpar(fill = colors[index], col = NA)
     )
-    label <- textGrob(labels[index], x = 0, just = "left", gp = gpar(fontsize = 7.5, col = "#475569"))
+    label <- textGrob(labels[index], x = 0, just = "left", gp = gpar(fontsize = BASE_TEXT_SIZE, col = "#475569"))
     legend <- gtable::gtable_add_grob(legend, swatch, t = row, l = column, b = row, r = column)
     legend <- gtable::gtable_add_grob(legend, label, t = row, l = column + 1L, b = row, r = column + 1L)
   }
@@ -329,7 +322,7 @@ draw_parameter_table <- function(cells) {
         x = if (column == 1L) 0.02 else column_edges[column] + column_widths[column] / 2,
         y = y,
         just = if (column == 1L) "left" else "centre",
-        gp = gpar(fontsize = 8, col = "#475569", fontface = if (row == 1L) "bold" else "plain")
+        gp = gpar(fontsize = BASE_TEXT_SIZE, col = "#475569", fontface = if (row == 1L) "bold" else "plain")
       )
     }
   }
@@ -337,13 +330,40 @@ draw_parameter_table <- function(cells) {
 
 # Figure assembly -------------------------------------------------------------
 
+strike_axis_labels <- function(grob, years) {
+  if (inherits(grob, "text")) {
+    indices <- which(as.character(grob$label) %in% as.character(years))
+    strokes <- lapply(indices, function(index) {
+      label <- textGrob(grob$label[index], gp = grob$gp)
+      width <- grobWidth(label)
+      height <- grobHeight(label)
+      segmentsGrob(
+        x0 = unit(0.5, "npc") - grob$hjust * width,
+        x1 = unit(0.5, "npc") + (1 - grob$hjust) * width,
+        y0 = unit(0.5, "npc") + (0.5 - grob$vjust) * height,
+        y1 = unit(0.5, "npc") + (0.5 - grob$vjust) * height,
+        gp = gpar(col = grob$gp$col, lwd = 0.7),
+        vp = viewport(x = grob$x[index], y = grob$y[index], angle = grob$rot)
+      )
+    })
+    return(gTree(children = do.call(gList, c(list(grob), strokes))))
+  }
+  if (!is.null(grob$children)) {
+    grob$children <- do.call(gList, lapply(grob$children, strike_axis_labels, years = years))
+  }
+  if (!is.null(grob$grobs)) {
+    grob$grobs <- lapply(grob$grobs, strike_axis_labels, years = years)
+  }
+  grob
+}
+
 build_plot_rows <- function(entity_frames, absolute_ylim) {
   lapply(seq_along(entity_order), function(index) {
     entity_name <- entity_order[index]
     plot_data <- entity_frames[[index]]
     main_row <- index == 1L
     last_row <- index == length(entity_order)
-    lapply(list(
+    plots <- lapply(list(
       build_stack_plot(
         entity_name, plot_data, relative = TRUE, show_title = main_row,
         show_y_label = main_row, show_x_label = last_row, absolute_ylim = absolute_ylim
@@ -354,6 +374,14 @@ build_plot_rows <- function(entity_frames, absolute_ylim) {
       ),
       build_decay_plot(entity_name, show_title = main_row, show_y_label = main_row, show_x_label = last_row)
     ), ggplotGrob)
+    if (isTRUE(plot_config$strike_excluded_year_labels)) {
+      years <- masked_years(band_data$entities[[entity_name]])
+      for (column in seq_len(2L)) {
+        axis_index <- which(plots[[column]]$layout$name == "axis-b")
+        plots[[column]]$grobs[[axis_index]] <- strike_axis_labels(plots[[column]]$grobs[[axis_index]], years)
+      }
+    }
+    plots
   })
 }
 
@@ -387,7 +415,7 @@ draw_plot_rows <- function(plot_rows, panel_heights) {
     pushViewport(viewport(layout.pos.row = index + 1L, layout.pos.col = 1L))
     grid.text(
       entity_label(entity_order[index]), y = label_y, rot = 90,
-      gp = gpar(fontsize = 9, fontface = "bold", col = "#334155")
+      gp = gpar(fontsize = AXIS_TITLE_SIZE, fontface = "bold", col = "#334155")
     )
     upViewport()
   }
@@ -402,17 +430,17 @@ draw_footer <- function(legend_grob, table_cells, footer_height) {
   upViewport()
   grid.text(
     "Hatched years: excluded",
-    x = unit(0.25, "in"), just = "left", gp = gpar(fontsize = 8, col = "#64748b")
+    x = unit(0.35, "in"), just = "left", gp = gpar(fontsize = BASE_TEXT_SIZE, col = "#64748b")
   )
   grid.text(
     sprintf("Decay: %s fit and %.0f%% posterior interval", plot_config$fit_summary, 100 * plot_config$confidence_level),
-    x = 1, just = "right", gp = gpar(fontsize = 8, col = "#64748b")
+    x = 1, just = "right", gp = gpar(fontsize = BASE_TEXT_SIZE, col = "#64748b")
   )
   upViewport()
 
   pushViewport(viewport(
     y = 0, height = unit(footer_height - 0.4, "in"), just = "bottom",
-    layout = grid.layout(1, 3, widths = unit.c(unit(1, "null"), unit(0.35, "in"), unit(5.7, "in")))
+    layout = grid.layout(1, 3, widths = unit.c(unit(1, "null"), unit(0.45, "in"), unit(6.5, "in")))
   ))
   pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1))
   pushViewport(viewport(y = 1, height = sum(legend_grob$heights), just = "top"))
@@ -420,17 +448,21 @@ draw_footer <- function(legend_grob, table_cells, footer_height) {
   upViewport(2)
   pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 3))
   grid.text(
-    "Fit parameters", x = 0, y = unit(1, "npc") - unit(0.16, "in"), just = "left",
-    gp = gpar(fontsize = 10, fontface = "bold", col = "#1e293b")
+    "Fit parameters", x = 0, y = unit(1, "npc") - unit(0.21, "in"), just = "left",
+    gp = gpar(fontsize = HEADING_TEXT_SIZE, fontface = "bold", col = "#1e293b")
   )
   pushViewport(viewport(
-    y = unit(1, "npc") - unit(0.32, "in"), height = unit(nrow(table_cells) * 0.20, "in"), just = "top"
+    y = unit(1, "npc") - unit(0.42, "in"), height = unit(nrow(table_cells) * 0.28, "in"), just = "top"
   ))
   draw_parameter_table(table_cells)
   upViewport(4)
 }
 
 render_band_decay <- function(output_file) {
+  output_format <- tolower(tools::file_ext(output_file))
+  if (!output_format %in% c("png", "pdf")) {
+    stop("Output file must have a .png or .pdf extension.")
+  }
   entity_frames <- lapply(entity_order, entity_frame)
   absolute_ylim <- max(vapply(entity_frames, function(counts) {
     if (nrow(counts) == 0L) 0 else max(tapply(counts$count, counts$year, sum))
@@ -438,24 +470,31 @@ render_band_decay <- function(output_file) {
   if (absolute_ylim <= 0) absolute_ylim <- 1
 
   legend_labels <- if (is.null(LEGEND_SEROTYPES)) {
-    display_columns[vapply(display_columns, function(label) {
-      any(vapply(entities, function(entity) sum(entity$grouped_counts[[label]]) > 0, logical(1)))
-    }, logical(1))]
+    display_columns
   } else {
     legend_serotypes
   }
-  legend_grob <- make_legend_grob(legend_labels, serotype_colors, plot_config$max_legend_labels)
+  legend_grob <- make_legend_grob(legend_labels, serotype_colors)
   table_cells <- make_parameter_table()
-  legend_rows <- ceiling(min(length(legend_labels), plot_config$max_legend_labels) / 7)
-  footer_height <- max(2.6, 0.8 + nrow(table_cells) * 0.20, 0.8 + legend_rows * 0.20)
-  figure_width <- 18
-  figure_height <- max(8, 4.2 + 1.65 * (length(entity_order) - 1L) + footer_height + 0.4)
+  legend_rows <- ceiling(length(legend_labels) / 6)
+  footer_height <- max(3.2, 0.9 + nrow(table_cells) * 0.28, 0.9 + legend_rows * 0.30)
+  figure_width <- 22
+  figure_height <- max(10, 5 + 2.1 * (length(entity_order) - 1L) + footer_height + 0.4)
 
   output_directory <- dirname(output_file)
   if (!dir.exists(output_directory)) dir.create(output_directory, recursive = TRUE)
-  png(output_file, width = figure_width, height = figure_height, units = "in", res = 300, bg = "white")
+  if (output_format == "pdf") {
+    grDevices::pdf(
+      output_file, width = figure_width, height = figure_height,
+      paper = "special", bg = "white", colormodel = "srgb",
+      version = "1.4", useDingbats = FALSE
+    )
+  } else {
+    ragg::agg_png(output_file, width = figure_width, height = figure_height, units = "in", res = 300, background = "white")
+  }
   on.exit(dev.off())
 
+  grid.newpage()
   aligned <- align_plot_rows(build_plot_rows(entity_frames, absolute_ylim))
   # Reserve space for axes and the footer; give the aggregate panel extra height.
   panel_ratios <- c(2.4, rep(1, length(entity_order) - 1L))
@@ -464,15 +503,14 @@ render_band_decay <- function(output_file) {
   layout <- grid.layout(
     nrow = length(entity_order) + 2L,
     ncol = 4L,
-    widths = unit.c(unit(0.4, "in"), unit(c(1.35, 1.35, 1.5), "null")),
+    widths = unit.c(unit(0.55, "in"), unit(c(1.35, 1.35, 1.5), "null")),
     heights = unit(c(0.9, aligned$fixed_heights + panel_heights, footer_height), "in")
   )
-  grid.newpage()
   pushViewport(viewport(width = unit(figure_width - 0.5, "in"), height = unit(figure_height - 0.5, "in"), layout = layout))
   pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1:4))
   grid.text(
     "Serotype composition and temporal similarity", x = 0, y = 0.78, just = "left",
-    gp = gpar(fontsize = 19, fontface = "bold", col = "#172b40")
+    gp = gpar(fontsize = FIGURE_TITLE_SIZE, fontface = "bold", col = "#172b40")
   )
   upViewport()
   draw_plot_rows(aligned$plots, panel_heights)
@@ -480,5 +518,8 @@ render_band_decay <- function(output_file) {
   upViewport()
 }
 
-render_band_decay(OUTPUT_FILE)
-cat(sprintf("Wrote %s\n", OUTPUT_FILE))
+for (output_format in unique(OUTPUT_FORMATS)) {
+  output_file <- paste0(tools::file_path_sans_ext(OUTPUT_FILE), ".", output_format)
+  render_band_decay(output_file)
+  cat(sprintf("Wrote %s\n", output_file))
+}
