@@ -92,6 +92,38 @@ def test_stability_handles_zero_decay_and_already_reached_target() -> None:
     )
     assert metrics["time_to_target_summary"] == 0.0
     assert metrics["auc_summary"] > 0
+    assert metrics["p_never_hit"] == 0.5
+
+
+def test_stability_p_never_hit_across_draw_scenarios() -> None:
+    # 4 draws:
+    # Draw 0: already reached (y0 <= target_mh) -> hit at t=0
+    # Draw 1: crossing (y0 > target_mh > c, b > 0) -> hit at t > 0
+    # Draw 2: asymptote above target (c >= target_mh) -> never hit
+    # Draw 3: zero decay (b <= 0, y0 > target_mh) -> never hit
+    fit = DecayFit(
+        y0_samples=np.asarray([0.4, 0.9, 0.9, 0.9]),
+        b_samples=np.asarray([0.1, 0.2, 0.2, 0.0]),
+        c_samples=np.asarray([0.1, 0.1, 0.6, 0.1]),
+    )
+    metrics = stability_metrics(
+        fit, np.asarray([1, 1, 2]), horizon_years=10, target_mh=0.5,
+        minimum_pairs_for_supported_lag=1, display_policy=OriginalDecay(),
+    )
+    assert metrics["p_never_hit"] == 0.5
+
+    # All crossing draws -> p_never_hit == 0.0
+    fit_all_cross = DecayFit(
+        y0_samples=np.asarray([0.9, 0.85]),
+        b_samples=np.asarray([0.2, 0.3]),
+        c_samples=np.asarray([0.1, 0.2]),
+    )
+    metrics_all_cross = stability_metrics(
+        fit_all_cross, np.asarray([1, 1, 2]), horizon_years=10, target_mh=0.5,
+        minimum_pairs_for_supported_lag=1, display_policy=OriginalDecay(),
+    )
+    assert metrics_all_cross["p_never_hit"] == 0.0
+    assert metrics_all_cross["time_to_target_summary"] > 0.0
 
 
 def test_stability_summary_policy_selects_mean_or_median() -> None:
@@ -110,3 +142,28 @@ def test_stability_summary_policy_selects_mean_or_median() -> None:
     mean = stability_metrics(fit, summary_policy=PosteriorMean(), **common)
     median = stability_metrics(fit, summary_policy=PosteriorMedian(), **common)
     assert mean["auc_summary"] != median["auc_summary"]
+
+
+def test_sensitivity_filename_template_none_shows_plot(monkeypatch, tmp_path) -> None:
+    import matplotlib.pyplot as plt
+
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(True))
+    monkeypatch.setattr(plt, "get_backend", lambda: "macosx")
+
+    sensitivity = SensitivityConfig(
+        coverage_percentages=(50.0,),
+        output_directory=tmp_path,
+        filename_template=None,
+        stability_targets=(0.5,),
+        stability_horizon_years=20,
+        minimum_pairs_for_supported_lag=1,
+    )
+    result = SensitivityRunner(
+        _config(tmp_path), sensitivity, fitter=FakeFitter(),
+        palette_builder=PaletteBuilder(PaletteSettings(candidate_count=32)),
+    ).run(_frame(), fit=True)
+
+    assert len(result.runs) == 1
+    assert result.runs[0].output_path is None
+    assert len(shown) == 1

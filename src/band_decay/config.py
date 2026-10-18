@@ -5,7 +5,7 @@ from __future__ import annotations
 import string
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 
 from .policies import (
     CollapseTaxa,
@@ -38,6 +38,49 @@ from .priors import DecayPriorConfig
 
 SUPPORTED_FILENAME_FIELDS = frozenset({"top_n", "top_n_scope"})
 
+DominanceFilterMode = Literal["sampling_first", "dominance_first"]
+
+
+@dataclass(frozen=True)
+class DominanceFilterConfig:
+    """Configure country-year dominance QC anomaly detection and filtering.
+
+    Attributes:
+        mode: Filtering order: 'sampling_first' or 'dominance_first'.
+        z_cutoff: Robust z-score threshold |z_t| > Z_cutoff (default 3.0).
+        effect_cutoff: Minimum effect size |d_t - d_tilde_t| > D_cutoff (default 0.15).
+        mad_scale: Normal-consistency MAD multiplier (default 1.4826).
+        logit_eps: Optional numerical clipping epsilon for logit transformation (default 1e-4).
+        min_peer_years: Minimum peer years required to classify anomaly (default 5).
+        enabled: Optional flag for explicit toggle; defaults to True when configuration is provided.
+    """
+
+    mode: DominanceFilterMode = "sampling_first"
+    z_cutoff: float = 3.0
+    effect_cutoff: float = 0.15
+    mad_scale: float = 1.4826
+    logit_eps: float = 1e-4
+    min_peer_years: int = 5
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("sampling_first", "dominance_first"):
+            raise ValueError(f"dominance.mode must be 'sampling_first' or 'dominance_first', got {self.mode!r}")
+        if float(self.z_cutoff) <= 0:
+            raise ValueError("dominance.z_cutoff must be positive.")
+        if not 0 <= float(self.effect_cutoff) <= 1:
+            raise ValueError("dominance.effect_cutoff must be in [0, 1].")
+        if float(self.mad_scale) <= 0:
+            raise ValueError("dominance.mad_scale must be positive.")
+        if not 0 < float(self.logit_eps) < 0.5:
+            raise ValueError("dominance.logit_eps must be in (0, 0.5).")
+        if int(self.min_peer_years) < 1:
+            raise ValueError("dominance.min_peer_years must be at least 1.")
+
+    def with_updates(self, **changes: object) -> "DominanceFilterConfig":
+        """Return a new dominance configuration with selected fields changed."""
+        return replace(self, **changes)
+
 
 @dataclass(frozen=True)
 class InputConfig:
@@ -59,19 +102,21 @@ class InputConfig:
 
 @dataclass(frozen=True)
 class YearSelectionConfig:
-    """Compose year-selection and display-axis policies.
+    """Compose year-selection, dominance QC, and display-axis policies.
 
     Attributes:
         min_count_per_year: Default yearly count threshold.
         per_country_min_count_per_year: Country-specific thresholds.
         selection: Policy selecting analytical years.
         display_axis: Policy selecting displayed years.
+        dominance: Optional dominance filter configuration override.
     """
 
     min_count_per_year: int = 10
     per_country_min_count_per_year: Mapping[str, int] = field(default_factory=dict)
     selection: YearSelectionPolicy = field(default_factory=LargestContiguousBlock)
     display_axis: DisplayAxisPolicy = field(default_factory=EntityAvailableYears)
+    dominance: DominanceFilterConfig | None = None
 
     def __post_init__(self) -> None:
         if int(self.min_count_per_year) < 0:
@@ -189,14 +234,27 @@ class PlotConfig:
     strike_excluded_year_labels: bool = True
     excluded_year_alpha: float = 0.28
     excluded_year_hatch: str = "////"
+    excluded_year_facecolor: str = "#b0b0b0"
+    excluded_year_edgecolor: str = "#666666"
+    dominance_excluded_year_alpha: float = 0.28
+    dominance_excluded_year_hatch: str = "\\\\\\\\"
+    dominance_excluded_year_facecolor: str = "#bca89f"
+    dominance_excluded_year_edgecolor: str = "#7a5c54"
     decay_display: DecayDisplayPolicy = field(default_factory=OriginalDecay)
     fit_summary: PosteriorSummaryPolicy = field(default_factory=PosteriorMedian)
+    palette: Path | str | Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if int(self.dpi) < 1 or int(self.max_legend_labels) < 0 or int(self.count_label_max_years) < 0:
             raise ValueError("plot dpi, legend limit, and label years must be nonnegative; dpi must be positive.")
-        if float(self.count_label_max_y_fraction) < 0 or not 0 <= float(self.excluded_year_alpha) <= 1:
-            raise ValueError("plot label fraction must be nonnegative and mask alpha must be in [0, 1].")
+        if float(self.count_label_max_y_fraction) < 0:
+            raise ValueError("plot label fraction must be nonnegative.")
+        if not 0 <= float(self.excluded_year_alpha) <= 1:
+            raise ValueError("plot excluded year mask alpha must be in [0, 1].")
+        if not 0 <= float(self.dominance_excluded_year_alpha) <= 1:
+            raise ValueError("plot dominance mask alpha must be in [0, 1].")
+        if self.palette is not None and not isinstance(self.palette, (str, Path, Mapping)):
+            raise TypeError("plot.palette must be a Path, str, or Mapping[str, str].")
 
     def with_updates(self, **changes: object) -> "PlotConfig":
         """Return a new plot configuration with selected fields changed."""
@@ -208,14 +266,15 @@ class OutputConfig:
     """Configure output directory and filename template."""
 
     output_directory: Path = Path("plots")
-    filename_template: str = "whitelisted_top_{top_n}_global.pdf"
+    filename_template: str | None = "whitelisted_top_{top_n}_global.pdf"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "output_directory", Path(self.output_directory))
-        fields = {field_name for _, field_name, _, _ in string.Formatter().parse(self.filename_template) if field_name}
-        unsupported = fields.difference(SUPPORTED_FILENAME_FIELDS)
-        if unsupported:
-            raise ValueError(f"output.filename_template contains unsupported fields: {sorted(unsupported)}")
+        if self.filename_template is not None:
+            fields = {field_name for _, field_name, _, _ in string.Formatter().parse(self.filename_template) if field_name}
+            unsupported = fields.difference(SUPPORTED_FILENAME_FIELDS)
+            if unsupported:
+                raise ValueError(f"output.filename_template contains unsupported fields: {sorted(unsupported)}")
 
 
 @dataclass(frozen=True)
@@ -229,6 +288,19 @@ class AnalysisConfig:
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
     plot: PlotConfig = field(default_factory=PlotConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    dominance: DominanceFilterConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.dominance is None and self.year_selection.dominance is not None:
+            object.__setattr__(self, "dominance", self.year_selection.dominance)
+
+    def with_dominance(self, dominance: DominanceFilterConfig | None = None, **changes: object) -> "AnalysisConfig":
+        """Return a new analysis configuration with selected dominance configuration or fields changed."""
+        if dominance is not None:
+            return replace(self, dominance=dominance)
+        if self.dominance is not None:
+            return replace(self, dominance=self.dominance.with_updates(**changes))
+        return replace(self, dominance=DominanceFilterConfig(**changes))  # type: ignore[arg-type]
 
     def with_top_n(self, **changes: object) -> "AnalysisConfig":
         """Return a new analysis configuration with selected Top-N fields changed."""
@@ -249,7 +321,7 @@ class SensitivityConfig:
 
     coverage_percentages: tuple[float, ...] = (80.0, 90.0, 95.0)
     output_directory: Path = Path("plots/sensitivity")
-    filename_template: str = "region_country_band_decay2_{coverage_percent:g}pct.png"
+    filename_template: str | None = "region_country_band_decay2_{coverage_percent:g}pct.png"
     stability_horizon_years: float = 20.0
     stability_targets: tuple[float, ...] = (0.3, 0.5, 0.7, 0.8, 0.9, 0.95)
     minimum_pairs_for_supported_lag: int = 4
@@ -274,7 +346,7 @@ class SensitivityConfig:
 class CurvePlotConfig:
     """Configure standalone fitted-curve rendering."""
 
-    output_path: Path = Path("plots/region_country_band_decay2_fitted_curves.png")
+    output_path: Path | None = Path("plots/region_country_band_decay2_fitted_curves.png")
     horizon_years: float = 20.0
     point_count: int = 400
     dpi: int = 300
@@ -285,6 +357,7 @@ class CurvePlotConfig:
     extrapolation: ExtrapolationPolicy = field(default_factory=NoExtrapolation)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "output_path", Path(self.output_path))
+        if self.output_path is not None:
+            object.__setattr__(self, "output_path", Path(self.output_path))
         if float(self.horizon_years) <= 0 or int(self.point_count) < 2 or int(self.dpi) < 1:
             raise ValueError("curve horizon must be positive, point count at least two, and dpi positive.")

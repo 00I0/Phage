@@ -161,3 +161,103 @@ def test_configured_curve_legend_hides_auxiliary_styles_and_uses_integer_ticks(t
     assert labels == ["Greece"]
     assert isinstance(axis.xaxis.get_major_locator(), MaxNLocator)
     assert np.allclose(axis.get_xticks(), np.round(axis.get_xticks()))
+
+
+def test_plot_config_palette_field() -> None:
+    from pathlib import Path
+    import pytest
+
+    # Default is None
+    cfg = PlotConfig()
+    assert cfg.palette is None
+
+    # Accepts Path, str, Mapping
+    assert PlotConfig(palette="data/palette.R").palette == "data/palette.R"
+    assert PlotConfig(palette=Path("data/palette.R")).palette == Path("data/palette.R")
+    mapping = {"1": "#123456"}
+    assert PlotConfig(palette=mapping).palette == mapping
+
+    # Rejects invalid types
+    with pytest.raises(TypeError, match="plot.palette must be"):
+        PlotConfig(palette=123)  # type: ignore[arg-type]
+
+
+def test_load_palette_formats() -> None:
+    from pathlib import Path
+    from band_decay.palette.loader import load_palette
+
+    r_palette = load_palette("data/palette.R")
+    assert len(r_palette) > 50
+    assert "ST512-KL107" in r_palette
+    assert "country_colors" not in r_palette
+    assert "Greece" not in r_palette
+
+    tsv_palette = load_palette("data/palette.tsv")
+    assert tsv_palette == r_palette
+
+    # Root-style path with typo
+    typo_palette = load_palette("/data/paletter.R")
+    assert typo_palette == r_palette
+
+    # Direct mapping
+    custom = {"A": "#ff0000", "B": "#00ff00"}
+    assert load_palette(custom) == custom
+
+
+def test_predefined_palette_builder_bypasses_optimizer(monkeypatch) -> None:
+    from band_decay.palette.optimizer import (
+        PaletteBuilder,
+        PredefinedPaletteBuilder,
+        _optimize_palette,
+    )
+
+    def fail_if_optimized(*args, **kwargs):
+        raise AssertionError("_optimize_palette should not be called when using predefined palette!")
+
+    monkeypatch.setattr("band_decay.palette.optimizer._optimize_palette", fail_if_optimized)
+
+    custom_colors = {"1": "#111111", "2": "#222222", "3": "#333333"}
+
+    builder1 = PredefinedPaletteBuilder(custom_colors)
+    p1 = builder1.build(("1", "2", "Other", "Transient"))
+    assert p1["1"] == "#111111"
+    assert p1["2"] == "#222222"
+    assert p1["Other"] == "#d9d9d9"
+    assert p1["Transient"] == "#6c757d"
+
+    # PaletteBuilder with palette argument
+    builder2 = PaletteBuilder(palette=custom_colors)
+    p2 = builder2.build(("1", "2", "Other"))
+    assert p2 == {"1": "#111111", "2": "#222222", "Other": "#d9d9d9"}
+
+    # Unknown taxon gets dynamically assigned without optimizer
+    p3 = builder1.build(("1", "UnknownTaxon"))
+    assert p3["1"] == "#111111"
+    assert p3["UnknownTaxon"].startswith("#")
+
+
+def test_pipeline_uses_predefined_palette_from_plot_config(monkeypatch) -> None:
+    from band_decay import AnalysisConfig, InputConfig, PlotConfig, DataPreparer
+    from band_decay.palette.optimizer import _optimize_palette
+
+    def fail_if_optimized(*args, **kwargs):
+        raise AssertionError("_optimize_palette should not be called when using predefined palette!")
+
+    monkeypatch.setattr("band_decay.palette.optimizer._optimize_palette", fail_if_optimized)
+
+    counts_df = pd.DataFrame([
+        {"country": "Greece", "collection_year": 2010, "serotype": "S1", "count": 20},
+        {"country": "Greece", "collection_year": 2011, "serotype": "S1", "count": 20},
+        {"country": "Greece", "collection_year": 2010, "serotype": "S2", "count": 10},
+        {"country": "Greece", "collection_year": 2011, "serotype": "S2", "count": 10},
+    ])
+
+    config = AnalysisConfig(
+        input=InputConfig(countries=("Greece",)),
+        plot=PlotConfig(palette={"S1": "#abcdef", "S2": "#fedcba"}),
+    )
+
+    preparer = DataPreparer(config)
+    prepared = preparer.prepare(counts_df)
+    assert prepared.palette["S1"] == "#abcdef"
+    assert prepared.palette["S2"] == "#fedcba"

@@ -27,20 +27,81 @@ def masked_display_years(selection: EntityYearSelection) -> frozenset[int]:
     return selection.excluded_years.union(selection.missing_years)
 
 
-def _mask_marked_years(axis, years: frozenset[int], *, height: float, config) -> None:
+def _mask_patch(
+    axis,
+    years: frozenset[int],
+    *,
+    height: float,
+    facecolor: str,
+    edgecolor: str,
+    hatch: str,
+    alpha: float,
+) -> None:
     for year in sorted(years):
         axis.add_patch(
             Rectangle(
                 (float(year) - 0.5, 0.0),
                 1.0,
                 height,
-                facecolor="#b0b0b0",
-                edgecolor="#666666",
-                hatch=config.excluded_year_hatch,
-                alpha=float(config.excluded_year_alpha),
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                hatch=hatch,
+                alpha=alpha,
                 linewidth=0.0,
                 zorder=6.0,
             )
+        )
+
+
+def _mask_marked_years(axis, years: frozenset[int], *, height: float, config) -> None:
+    """Mask specified years with default sampling exclusion styling."""
+    _mask_patch(
+        axis,
+        years,
+        height=height,
+        facecolor=getattr(config, "excluded_year_facecolor", "#b0b0b0"),
+        edgecolor=getattr(config, "excluded_year_edgecolor", "#666666"),
+        hatch=getattr(config, "excluded_year_hatch", "////"),
+        alpha=float(getattr(config, "excluded_year_alpha", 0.28)),
+    )
+
+
+def _mask_selection_years(
+    axis,
+    selection: EntityYearSelection,
+    *,
+    height: float,
+    config,
+) -> None:
+    """Mask excluded and missing years, visually distinguishing exclusion reasons."""
+    # Standard/sampling exclusions take precedence over dominance exclusions
+    # so that the new dominance marking only shows NEW exclusions.
+    sampling_years = selection.sampling_excluded_years.union(selection.missing_years)
+    dominance_years = selection.dominance_excluded_years.difference(sampling_years)
+
+    if not sampling_years and not dominance_years and selection.excluded_years:
+        sampling_years = selection.excluded_years.union(selection.missing_years)
+
+    if sampling_years:
+        _mask_patch(
+            axis,
+            sampling_years,
+            height=height,
+            facecolor=getattr(config, "excluded_year_facecolor", "#b0b0b0"),
+            edgecolor=getattr(config, "excluded_year_edgecolor", "#666666"),
+            hatch=getattr(config, "excluded_year_hatch", "////"),
+            alpha=float(getattr(config, "excluded_year_alpha", 0.28)),
+        )
+
+    if dominance_years:
+        _mask_patch(
+            axis,
+            dominance_years,
+            height=height,
+            facecolor=getattr(config, "dominance_excluded_year_facecolor", "#bca89f"),
+            edgecolor=getattr(config, "dominance_excluded_year_edgecolor", "#7a5c54"),
+            hatch=getattr(config, "dominance_excluded_year_hatch", "\\\\\\\\"),
+            alpha=float(getattr(config, "dominance_excluded_year_alpha", 0.28)),
         )
 
 
@@ -139,8 +200,8 @@ def _plot_band_pair(
         for tick in axis.get_xticklabels():
             tick.set_rotation(45)
             tick.set_ha("right")
-    _mask_marked_years(relative_axis, marked_years, height=1.0, config=config)
-    _mask_marked_years(absolute_axis, marked_years, height=absolute_ymax, config=config)
+    _mask_selection_years(relative_axis, year_selection, height=1.0, config=config)
+    _mask_selection_years(absolute_axis, year_selection, height=absolute_ymax, config=config)
     if row_label:
         _add_row_label(relative_axis, row_label)
 
@@ -354,15 +415,18 @@ class AnalysisFigureRenderer:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             figure.savefig(output_path, dpi=int(config.plot.dpi), bbox_inches="tight")
         backend = str(plt.get_backend()).lower()
-        if config.plot.show and "agg" not in backend:
+        should_show = (output_path is None) or config.plot.show
+        if should_show and backend not in ("agg", "pdf", "ps", "svg", "cairo"):
             plt.show()
         else:
             plt.close(figure)
         return output_path
 
 
-def output_path_for_config(config: AnalysisConfig) -> Path:
+def output_path_for_config(config: AnalysisConfig) -> Path | None:
     """Resolve the configured output filename for an analysis."""
+    if config.output.filename_template is None:
+        return None
     filename = config.output.filename_template.format(top_n=config.top_n.n, top_n_scope=config.top_n.selection.describe(config.top_n.n))
     return config.output.output_directory / filename
 

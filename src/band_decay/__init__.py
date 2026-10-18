@@ -3,6 +3,8 @@
 from .config import (
     AnalysisConfig,
     CurvePlotConfig,
+    DominanceFilterConfig,
+    DominanceFilterMode,
     InputConfig,
     MorisitaHornConfig,
     OutputConfig,
@@ -33,8 +35,15 @@ from .domain import (
     RunResult,
     SensitivityResult,
 )
+from .dominance import (
+    CountryDominanceQCResult,
+    YearDominanceEvaluation,
+    clipped_logit,
+    compute_raw_dominance,
+    evaluate_country_dominance,
+)
 from .fitting import DecayFitter, NoOpFitter, PyMCDecayFitter, fit_entities
-from .palette import DEFAULT_PALETTE_SETTINGS, PaletteBuilder, PaletteSettings, build_taxon_palette, palette_diagnostics, reconcile_palette
+from .palette import DEFAULT_PALETTE_SETTINGS, PaletteBuilder, PaletteSettings, PredefinedPaletteBuilder, build_predefined_palette, build_taxon_palette, load_palette, palette_diagnostics, reconcile_palette
 from .pipeline import DecayAnalysis, prepare_data, run_top_n_sweep
 from .policies import (
     AllAvailableYears,
@@ -117,9 +126,9 @@ from .sensitivity import (
 
 __all__ = [
     "AllAvailableYears", "AnalysisConfig", "AnalysisFigureRenderer", "AsymptotePrior", "AvailableYearRanking",
-    "BetaPrior", "BuiltNoise", "CentralConfidenceInterval", "CollapseTaxa", "ConfidenceIntervalPolicy", "CoveragePlan", "CurvePlotConfig",
+    "BetaPrior", "BuiltNoise", "CentralConfidenceInterval", "CollapseTaxa", "ConfidenceIntervalPolicy", "CoveragePlan", "CountryDominanceQCResult", "CurvePlotConfig",
     "DataPreparer", "DecayAnalysis", "DecayDisplayPolicy", "DecayFitter", "DecayFit", "DecayPriorConfig",
-    "DashedExtrapolation", "DirectAsymptote", "DisplayAxisPolicy", "EntityAvailableYears", "EntityDecayData", "EntityGrouping", "ExtrapolationPolicy",
+    "DashedExtrapolation", "DirectAsymptote", "DisplayAxisPolicy", "DominanceFilterConfig", "DominanceFilterMode", "EntityAvailableYears", "EntityDecayData", "EntityGrouping", "ExtrapolationPolicy",
     "EntityYearSelection", "FittedCurvesRenderer", "FixedNoiseVariable", "FixedObservationNoise", "FixedValuePrior",
     "GLOBAL_ENTITY", "GlobalTopN", "GlobalTransientTaxa", "HalfNormalPrior", "InputConfig", "KeepTaxa",
     "LargestContiguousBlock", "MorisitaHornConfig", "NoConfidenceInterval", "NoExtrapolation", "NoOpFitter", "NoTransientTaxa", "NormalizedDecay", "NoisePrior",
@@ -128,13 +137,13 @@ __all__ = [
     "PosteriorMean", "PosteriorMedian", "PosteriorSummaryPolicy", "QualifyingYears", "RelativeAsymptote", "RunResult", "SampledNoiseVariable", "SampledObservationNoise",
     "SamplingConfig", "SelectedYearRanking", "SensitivityConfig", "SensitivityResult", "SensitivityRunner", "SkipTaxa",
     "TaxonGroupingPolicy", "TaxonRanker", "TaxonRankingPolicy", "TopNConfig", "TopNSelectionPolicy", "TRANSIENT_NAME",
-    "TRANSIENT_TAXON", "TransientPolicy", "UnionAvailableYears", "YearSelectionConfig",
+    "TRANSIENT_TAXON", "TransientPolicy", "UnionAvailableYears", "YearDominanceEvaluation", "YearSelectionConfig",
     "YearSelectionPolicy", "build_coverage_plan", "build_display_and_analysis_matrices", "build_global_analysis_frame",
     "build_master_display_columns", "build_mh_counts", "build_raw_entity_count_matrices", "build_stability_table",
-    "build_taxon_palette", "counts_to_props", "determine_transient_serotypes",
-    "eligible_serotypes_for_top_n", "fit_entities", "group_display_counts", "largest_contiguous_block", "largest_supported_lag",
+    "build_taxon_palette", "clipped_logit", "compute_raw_dominance", "counts_to_props", "determine_transient_serotypes",
+    "eligible_serotypes_for_top_n", "evaluate_country_dominance", "fit_entities", "group_display_counts", "largest_contiguous_block", "largest_supported_lag",
     "load_counts", "masked_display_years", "output_path_for_config", "palette_diagnostics", "prepare_data", "rank_serotypes",
     "raw_entity_counts", "render_figure", "render_fitted_curves", "resolve_configured_countries", "run_sensitivity",
     "run_top_n_sweep", "select_years_for_entity", "stability_metrics", "top_n_for_coverage", "validate_counts_frame",
-    "DEFAULT_PALETTE_SETTINGS", "reconcile_palette",
+    "DEFAULT_PALETTE_SETTINGS", "PredefinedPaletteBuilder", "build_predefined_palette", "load_palette", "reconcile_palette",
 ]

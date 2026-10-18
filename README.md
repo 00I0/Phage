@@ -24,6 +24,12 @@ coverage sensitivity analysis, and fitted-curve figures.
 - `update_fitted_country_curves_data.py` updates the R band-decay data and palette files.
 - `plot_fitted_country_curves.R` reads that file and creates the R curve plot.
 
+Run `Rscript scripts/plot_band_decay.R` to export the combined figure as both
+a 300 dpi PNG and a vector PDF. Set `OUTPUT_FILE` in that script to choose the
+output directory and basename, and `OUTPUT_FORMATS` to choose `c("png", "pdf")`,
+`"png"`, or `"pdf"`. PNG export requires the R package `ragg`; PDF export uses
+R's built-in PDF device with sRGB colors and does not require Cairo or XQuartz.
+
 ## Installation
 
 From the project directory, install all runtime, fitting, and notebook

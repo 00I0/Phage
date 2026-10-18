@@ -9,6 +9,7 @@ from band_decay import (
     BetaPrior,
     DecayPriorConfig,
     DirectAsymptote,
+    DominanceFilterConfig,
     HalfNormalPrior,
     InputConfig,
     MorisitaHornConfig,
@@ -48,6 +49,19 @@ class SensitivityApplication:
     def run(self) -> SensitivityResult:
         """Run the workflow and print its summary tables."""
         result = self.runner.run(fit=self.fit)
+        if self.runner.config.dominance is not None and result.runs:
+            print(f"\nDominance QC summary (mode={self.runner.config.dominance.mode}):")
+            first_run = result.runs[0]
+            any_anomalies = False
+            for country in first_run.config.input.countries:
+                ent = first_run.prepared.entities.get(country)
+                if ent and ent.year_selection.dominance_excluded_years:
+                    any_anomalies = True
+                    years_str = ", ".join(str(y) for y in sorted(ent.year_selection.dominance_excluded_years))
+                    print(f"  {country}: dominance anomalies excluded: {years_str}")
+            if not any_anomalies:
+                print("  No country-years flagged as dominance anomalies.")
+
         for plan in result.plans:
             print(
                 f"Coverage {plan.coverage_percent:g}%: "
@@ -65,7 +79,7 @@ class SensitivityApplication:
 def main() -> None:
     """Configure and run the standalone sensitivity analysis."""
     project_directory = Path(__file__).resolve().parents[1]
-    data_path = project_directory / "data/serotype_counts_country_ds_geodate2-2.tsv"
+    data_path = project_directory / "data/serotype_counts_country_ds_geodate2-3.tsv"
     countries = (
         "Greece",
         "Italy",
@@ -76,7 +90,7 @@ def main() -> None:
         "Germany",
         "Switzerland",
     )
-    coverage_percentages = (90.0,)
+    coverage_percentages = (80.0, 90.0, 95.0)
     min_year_count_by_country = {
         "United Kingdom": 2.0,
         "Switzerland": 2.0,
@@ -87,11 +101,19 @@ def main() -> None:
         "Russia": 3.0,
         "France": 3.0,
     }
-    output_directory = project_directory / "plots"
+    output_directory = project_directory / "plots_5"
     stability_horizon_years = 20.0
     stability_targets = (0.3, 0.5, 0.7, 0.8, 0.9, 0.95)
     minimum_pairs_for_supported_lag = 4
     fit = True
+
+    dominance = DominanceFilterConfig(
+        mode="dominance_first",
+        z_cutoff=2.5,
+        effect_cutoff=0.2,
+        mad_scale=1.4826,
+        min_peer_years=5,
+    )
 
     priors = DecayPriorConfig(
         y0=BetaPrior(alpha=2.0, beta=2.0),
@@ -106,6 +128,7 @@ def main() -> None:
             selection=QualifyingYears(),
             display_axis=UnionAvailableYears(),
         ),
+        dominance=None,
         top_n=TopNConfig(
             n=0,
             per_country_n={},
@@ -115,8 +138,8 @@ def main() -> None:
         ),
         mh=MorisitaHornConfig(other_grouping=SkipTaxa(), transient_grouping=SkipTaxa()),
         sampling=SamplingConfig(
-            draws=500,
-            tune=500,
+            draws=2_500,
+            tune=2_500,
             chains=8,
             cores=8,
             target_accept=0.975,
@@ -128,13 +151,15 @@ def main() -> None:
             max_legend_labels=200,
             decay_display=NormalizedDecay(),
             fit_summary=PosteriorMedian(),
+            palette=project_directory / "data/palette.R",
         ),
         output=OutputConfig(output_directory=output_directory),
     )
     sensitivity_config = SensitivityConfig(
         coverage_percentages=coverage_percentages,
         output_directory=output_directory,
-        filename_template="band_decay_{coverage_percent:g}pct.png",
+        filename_template="band_decay_{coverage_percent:g}pct.pdf",
+        # filename_template=None,
         stability_horizon_years=stability_horizon_years,
         stability_targets=stability_targets,
         minimum_pairs_for_supported_lag=minimum_pairs_for_supported_lag,

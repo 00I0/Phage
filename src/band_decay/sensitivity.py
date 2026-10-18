@@ -200,6 +200,7 @@ def stability_metrics(
     crossing = (~already) & (b > 0) & (c < float(target_mh))
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         times[crossing] = np.log1p((y0[crossing] - target_mh) / (target_mh - c[crossing])) / b[crossing]
+    never_hit[crossing] = False
     valid_times = times[np.isfinite(times) & (times >= 0)]
     time_summary = summary.scalar(valid_times) if len(valid_times) else np.nan
     time_low, time_high = np.quantile(valid_times, [0.025, 0.975]) if len(valid_times) else (np.nan, np.nan)
@@ -265,7 +266,14 @@ class SensitivityRunner:
         self.config = config
         self.sensitivity_config = sensitivity_config
         self.fitter = fitter
-        self.palette_builder = palette_builder
+        if palette_builder is not None:
+            self.palette_builder = palette_builder
+        elif getattr(getattr(self.config, "plot", None), "palette", None) is not None:
+            from .palette import PredefinedPaletteBuilder
+
+            self.palette_builder = PredefinedPaletteBuilder(self.config.plot.palette)
+        else:
+            self.palette_builder = None
 
     def run(self, raw_counts: pd.DataFrame | None = None, *, fit: bool = False) -> SensitivityResult:
         """Execute all configured coverage levels.
@@ -289,17 +297,22 @@ class SensitivityRunner:
         fit_rows = []
         # Reuse one label universe so colors remain stable across coverage runs.
         for plan in plans:
+            should_save = self.sensitivity_config.filename_template is not None
+            show_plot = not should_save or self.config.plot.show
             variant = self.config.with_top_n(
                 n=len(plan.global_selected_serotypes),
                 per_country_n=dict(plan.country_n),
                 global_selected_serotypes=plan.global_selected_serotypes,
-            )
-            output_path = Path(self.sensitivity_config.output_directory) / self.sensitivity_config.filename_template.format(
-                coverage=plan.coverage_percent,
-                coverage_percent=plan.coverage_percent,
-            )
+            ).with_plot(show=show_plot)
+            if should_save:
+                output_path = Path(self.sensitivity_config.output_directory) / self.sensitivity_config.filename_template.format(
+                    coverage=plan.coverage_percent,
+                    coverage_percent=plan.coverage_percent,
+                )
+            else:
+                output_path = None
             result = DecayAnalysis(variant, fitter=self.fitter, palette_builder=self.palette_builder).run(
-                raw_counts, fit=fit, output_path=output_path, palette_master_labels=stable_labels,
+                raw_counts, fit=fit, save=should_save, output_path=output_path, palette_master_labels=stable_labels,
             )
             runs.append(result)
             fit_rows.extend(_fit_summary_rows(result, plan, self.sensitivity_config.fit_summary))

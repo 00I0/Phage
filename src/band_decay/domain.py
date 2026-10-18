@@ -20,6 +20,8 @@ class EntityYearSelection:
     selected_years: frozenset[int]
     excluded_years: frozenset[int]
     missing_years: frozenset[int] = frozenset()
+    sampling_excluded_years: frozenset[int] = frozenset()
+    dominance_excluded_years: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         available = frozenset(self.available_years)
@@ -29,6 +31,12 @@ class EntityYearSelection:
             raise ValueError(f"{self.entity}: selected and excluded years overlap.")
         if self.selected_years.union(self.excluded_years) != available:
             raise ValueError(f"{self.entity}: selected plus excluded years must equal available years.")
+        if not self.sampling_excluded_years and not self.dominance_excluded_years and self.excluded_years:
+            object.__setattr__(self, "sampling_excluded_years", self.excluded_years)
+        if self.sampling_excluded_years and not self.sampling_excluded_years.issubset(self.excluded_years):
+            raise ValueError(f"{self.entity}: sampling excluded years must be excluded years.")
+        if self.dominance_excluded_years and not self.dominance_excluded_years.issubset(self.excluded_years):
+            raise ValueError(f"{self.entity}: dominance excluded years must be excluded years.")
 
 
 @dataclass(frozen=True)

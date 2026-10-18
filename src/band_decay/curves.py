@@ -20,7 +20,7 @@ class FittedCurvesRenderer:
         config: CurvePlotConfig,
         *,
         entity_order: tuple[str, ...] | None = None,
-    ) -> Path:
+    ) -> Path | None:
         """Render pointwise summarized curves from fitted decay data."""
         entities = tuple(entity_order) if entity_order is not None else tuple(decay_data)
         missing = [entity for entity in entities if entity not in decay_data]
@@ -85,10 +85,15 @@ class FittedCurvesRenderer:
         axis.grid(alpha=0.2, linewidth=0.6)
         axis.legend(frameon=False)
         figure.tight_layout()
-        output_path = Path(config.output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(output_path, dpi=int(config.dpi), bbox_inches="tight")
-        if config.show:
+        if config.output_path is not None:
+            output_path = Path(config.output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(output_path, dpi=int(config.dpi), bbox_inches="tight")
+        else:
+            output_path = None
+        should_show = (output_path is None) or config.show
+        backend = str(plt.get_backend()).lower()
+        if should_show and backend not in ("agg", "pdf", "ps", "svg", "cairo"):
             plt.show()
         else:
             plt.close(figure)
@@ -100,6 +105,6 @@ def render_fitted_curves(
     config: CurvePlotConfig,
     *,
     entity_order: tuple[str, ...] | None = None,
-) -> Path:
+) -> Path | None:
     """Render summarized curves from fitted entity decay data."""
     return FittedCurvesRenderer().render(decay_data, config, entity_order=entity_order)

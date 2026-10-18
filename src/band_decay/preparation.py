@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
-from .config import TopNConfig, YearSelectionConfig
+from .config import DominanceFilterConfig, TopNConfig, YearSelectionConfig
 from .constants import GLOBAL_ENTITY, OTHER_TAXON, TRANSIENT_TAXON
 from .data import (
     build_global_analysis_frame,
@@ -16,6 +16,7 @@ from .data import (
     validate_counts_frame,
 )
 from .domain import EntityGrouping, EntityYearSelection, PreparedData, PreparedEntityData
+from .dominance import evaluate_country_dominance
 from .policies import (
     CollapseTaxa,
     DisplayAxisPolicy,
@@ -40,28 +41,58 @@ def largest_contiguous_block(years: Iterable[int]) -> frozenset[int]:
     return LargestContiguousBlock().select(tuple(int(year) for year in years), frozenset(int(year) for year in years))
 
 
-def select_years_for_entity(counts: pd.DataFrame, config: YearSelectionConfig, entity: str) -> EntityYearSelection:
-    """Select an entity’s analytical years according to its year policy.
+def select_years_for_entity(
+    counts: pd.DataFrame,
+    config: YearSelectionConfig,
+    entity: str,
+    *,
+    dominance_config: DominanceFilterConfig | None = None,
+) -> EntityYearSelection:
+    """Select an entity’s analytical years according to year and dominance policies.
 
     Args:
         counts: Year-indexed serotype counts.
         config: Year-selection configuration.
         entity: Entity label used for country-specific overrides.
+        dominance_config: Optional dominance QC configuration.
 
     Returns:
         The available, qualifying, selected, and excluded years.
     """
+    dom_cfg = dominance_config if dominance_config is not None else getattr(config, "dominance", None)
     yearly_totals = counts.sum(axis=1).astype(float)
     available = tuple(int(year) for year in yearly_totals.index[yearly_totals > 0])
     threshold = float(config.min_count_for_country(entity))
-    qualifying = frozenset(int(year) for year in yearly_totals.index[yearly_totals >= threshold]) if threshold > 0 else frozenset(available)
+
+    enabled = dom_cfg is not None and getattr(dom_cfg, "enabled", True)
+    qc_result = evaluate_country_dominance(
+        counts,
+        entity,
+        threshold=threshold,
+        enabled=enabled,
+        mode=dom_cfg.mode if dom_cfg is not None else "sampling_first",
+        z_cutoff=dom_cfg.z_cutoff if dom_cfg is not None else 3.0,
+        effect_cutoff=dom_cfg.effect_cutoff if dom_cfg is not None else 0.15,
+        mad_scale=dom_cfg.mad_scale if dom_cfg is not None else 1.4826,
+        logit_eps=dom_cfg.logit_eps if dom_cfg is not None else 1e-4,
+        min_peer_years=dom_cfg.min_peer_years if dom_cfg is not None else 5,
+    )
+
+    qualifying = qc_result.qualifying_years
     selected = config.selection.select(available, qualifying)
+    dropped_by_selection = qualifying.difference(selected)
+    sampling_excluded = qc_result.sampling_excluded_years.union(dropped_by_selection)
+    dominance_excluded = qc_result.dominance_excluded_years.difference(sampling_excluded)
+    excluded = frozenset(set(available).difference(selected))
+
     return EntityYearSelection(
         entity=entity,
         available_years=available,
         qualifying_years=qualifying,
         selected_years=selected,
-        excluded_years=frozenset(set(available).difference(selected)),
+        excluded_years=excluded,
+        sampling_excluded_years=sampling_excluded,
+        dominance_excluded_years=dominance_excluded,
     )
 
 
@@ -79,12 +110,15 @@ def _global_year_selection(display_counts: pd.DataFrame, analysis_counts: pd.Dat
     analysis_totals = analysis_counts.sum(axis=1).astype(float) if not analysis_counts.empty else pd.Series(dtype=float)
     available = tuple(int(year) for year in display_totals.index[display_totals > 0])
     selected = frozenset(int(year) for year in analysis_totals.index[analysis_totals > 0])
+    excluded = frozenset(set(available).difference(selected))
     return EntityYearSelection(
         entity=GLOBAL_ENTITY,
         available_years=available,
         qualifying_years=selected,
         selected_years=selected,
-        excluded_years=frozenset(set(available).difference(selected)),
+        excluded_years=excluded,
+        sampling_excluded_years=excluded,
+        dominance_excluded_years=frozenset(),
     )
 
 
@@ -171,7 +205,7 @@ def rank_serotypes(counts: pd.DataFrame, eligible_serotypes: Iterable[str] | Non
         return tuple()
     eligible = set(counts.columns.astype(str)) if eligible_serotypes is None else {str(value) for value in eligible_serotypes}
     totals = counts.reindex(columns=sorted(eligible), fill_value=0.0).sum(axis=0).astype(float)
-    return tuple(sorted(totals.index.astype(str), key=lambda label: (-float(totals[label]), label)))
+    return tuple(sorted(totals.index.astype(str), key=lambda label: (-float(totals[label]), label)))\
 
 
 def build_entity_groupings(
@@ -213,6 +247,7 @@ def build_master_display_columns(
     selected_union = {label for grouping in groupings.values() for label in grouping.selected_serotypes}
     global_totals = display_counts[GLOBAL_ENTITY].reindex(columns=sorted(selected_union), fill_value=0.0).sum(axis=0)
     selected_order = tuple(sorted(selected_union, key=lambda label: (-float(global_totals[label]), label)))
+
     columns = list(selected_order)
     if any(grouping.include_other for grouping in groupings.values()):
         columns.append(OTHER_NAME)
@@ -292,7 +327,7 @@ class DataPreparer:
         Raises:
             ValueError: If input data or configuration cannot produce an analysis.
         """
-        from .palette import PaletteBuilder
+        from .palette import PaletteBuilder, PredefinedPaletteBuilder
 
         if raw_counts is None:
             if self.config.input.data_path is None:
@@ -305,7 +340,16 @@ class DataPreparer:
         entity_order = (GLOBAL_ENTITY, *countries)
         # Build raw matrices once so every downstream step shares the same schema.
         raw_by_entity = build_raw_entity_count_matrices(counts, countries)
-        country_selection = {country: select_years_for_entity(raw_by_entity[country], self.config.year_selection, country) for country in countries}
+        dominance_config = getattr(self.config, "dominance", None)
+        country_selection = {
+            country: select_years_for_entity(
+                raw_by_entity[country],
+                self.config.year_selection,
+                country,
+                dominance_config=dominance_config,
+            )
+            for country in countries
+        }
         display_counts, analysis_counts, selections = build_display_and_analysis_matrices(
             raw_counts_by_entity=raw_by_entity,
             country_frame=country_frame,
@@ -326,7 +370,12 @@ class DataPreparer:
         master_columns = build_master_display_columns(display_counts, groupings)
         grouped = {entity: group_display_counts(display_counts[entity], groupings[entity], master_columns) for entity in entity_order}
         master_labels = tuple(dict.fromkeys(str(label) for label in (palette_master_labels or master_columns)))
-        builder = palette_builder or PaletteBuilder()
+        if palette_builder is not None:
+            builder = palette_builder
+        elif getattr(getattr(self.config, "plot", None), "palette", None) is not None:
+            builder = PredefinedPaletteBuilder(self.config.plot.palette)
+        else:
+            builder = PaletteBuilder()
         palette = builder.build(master_columns, displayed_stacks=grouped, master_labels=master_labels, master_displayed_stacks=display_counts)
         entities = {}
         for entity in entity_order:

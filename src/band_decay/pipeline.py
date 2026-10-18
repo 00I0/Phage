@@ -8,7 +8,7 @@ import pandas as pd
 from .config import AnalysisConfig
 from .domain import PreparedData, RunResult
 from .fitting import DecayFitter, NoOpFitter, PyMCDecayFitter, fit_entities
-from .palette import PaletteBuilder
+from .palette import PaletteBuilder, PredefinedPaletteBuilder
 from .preparation import DataPreparer
 from .rendering import AnalysisFigureRenderer, output_path_for_config
 
@@ -28,7 +28,12 @@ class DecayAnalysis:
         self.config = config
         self.fitter = fitter
         self.renderer = renderer or AnalysisFigureRenderer()
-        self.palette_builder = palette_builder or PaletteBuilder()
+        if palette_builder is not None:
+            self.palette_builder = palette_builder
+        elif getattr(getattr(self.config, "plot", None), "palette", None) is not None:
+            self.palette_builder = PredefinedPaletteBuilder(self.config.plot.palette)
+        else:
+            self.palette_builder = PaletteBuilder()
 
     def prepare(self, raw_counts: pd.DataFrame | None = None, *, palette_master_labels: Sequence[str] | None = None) -> PreparedData:
         """Prepare input data without fitting or rendering.

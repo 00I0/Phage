@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -1045,12 +1046,114 @@ def reconcile_palette(
     return {s: current_colors[s] for s in all_serotypes}
 
 
-class PaletteBuilder:
-    """Build palettes through the legacy-compatible palette strategy."""
+def build_predefined_palette(
+    labels: Sequence[str],
+    palette: Path | str | Mapping[str, str],
+    *,
+    settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS,
+    reference_palette: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a palette directly from a predefined palette without optimization.
 
-    def __init__(self, settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS):
-        """Initialize a palette builder with explicit generation settings."""
+    Args:
+        labels: Requested taxon labels that must appear in the returned palette.
+        palette: Predefined palette source (file path or mapping).
+        settings: Palette settings for fallback colors (Other, Transient, and unmapped taxa).
+        reference_palette: Optional secondary reference palette that can override or supplement colors.
+
+    Returns:
+        Mapping from each label in labels to its assigned hexadecimal color.
+    """
+    from .loader import load_palette
+
+    ordered_labels = tuple(dict.fromkeys(str(label) for label in labels))
+    if len(ordered_labels) != len(labels):
+        raise ValueError("Palette labels must be unique.")
+
+    source_colors = dict(load_palette(palette))
+    if reference_palette:
+        source_colors.update(reference_palette)
+
+    result: dict[str, str] = {}
+    unassigned: list[str] = []
+
+    for label in ordered_labels:
+        if label == OTHER_TAXON:
+            result[label] = source_colors.get(OTHER_TAXON, settings.other_color)
+        elif label == TRANSIENT_TAXON:
+            result[label] = source_colors.get(TRANSIENT_TAXON, settings.transient_color)
+        elif label in source_colors:
+            result[label] = source_colors[label]
+        else:
+            unassigned.append(label)
+
+    if unassigned:
+        pool_size = max(int(settings.candidate_count), len(ordered_labels) * 2, 200)
+        pools = (
+            _candidate_pool(settings, _TIER_HERO, pool_size).hexes
+            + _candidate_pool(settings, _TIER_INTERMEDIATE, pool_size).hexes
+            + _candidate_pool(settings, _TIER_RARE, pool_size).hexes
+        )
+        pool_hexes = list(dict.fromkeys(pools))
+        used_colors = set(result.values())
+        pool_idx = 0
+        for label in unassigned:
+            while pool_idx < len(pool_hexes) and pool_hexes[pool_idx] in used_colors:
+                pool_idx += 1
+            if pool_idx >= len(pool_hexes):
+                raise ValueError("Exhausted candidate pool while assigning colors to unassigned labels.")
+            col = pool_hexes[pool_idx]
+            pool_idx += 1
+            result[label] = col
+            used_colors.add(col)
+
+    return {label: result[label] for label in ordered_labels}
+
+
+class PredefinedPaletteBuilder:
+    """Assign colors directly from a predefined palette without optimization."""
+
+    def __init__(
+        self,
+        palette: Path | str | Mapping[str, str],
+        *,
+        settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS,
+    ):
+        from .loader import load_palette
+
+        self.palette = load_palette(palette)
         self.settings = settings
+
+    def build(
+        self,
+        labels: Sequence[str],
+        *,
+        displayed_stacks: Mapping[Any, pd.DataFrame] | Iterable[pd.DataFrame] | None = None,
+        master_labels: Sequence[str] | None = None,
+        master_displayed_stacks: Mapping[Any, pd.DataFrame] | Iterable[pd.DataFrame] | None = None,
+        reference_palette: Mapping[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Build a deterministic palette from the predefined palette without optimization."""
+        return build_predefined_palette(
+            labels,
+            self.palette,
+            settings=self.settings,
+            reference_palette=reference_palette,
+        )
+
+
+class PaletteBuilder:
+    """Build palettes through the legacy-compatible palette strategy or predefined palette."""
+
+    def __init__(
+        self,
+        settings: PaletteSettings = DEFAULT_PALETTE_SETTINGS,
+        *,
+        palette: Path | str | Mapping[str, str] | None = None,
+    ):
+        """Initialize a palette builder with explicit generation settings or fixed palette."""
+        self.settings = settings
+        self.palette = palette
 
     def build(
         self,
@@ -1073,6 +1176,13 @@ class PaletteBuilder:
         Returns:
             Mapping from each requested label to a hexadecimal color.
         """
+        if self.palette is not None:
+            return build_predefined_palette(
+                labels,
+                self.palette,
+                settings=self.settings,
+                reference_palette=reference_palette,
+            )
         return build_taxon_palette(
             labels,
             displayed_stacks=displayed_stacks,
