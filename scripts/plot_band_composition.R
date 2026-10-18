@@ -7,7 +7,7 @@ library(grid)
 
 DATA_FILE <- "data/band_decay_data.R"
 PALETTE_FILE <- "data/palette.R"
-OUTPUT_FILE <- "plots_6/band_composition_90pct_cannonical.png"
+OUTPUT_FILE <- "plots/band_composition_90pct_cannonical.png"
 OUTPUT_FORMATS <- c("png", "pdf")
 USE_CANONICAL_SEROTYPE_ORDER <- TRUE
 BASE_TEXT_SIZE <- 12
